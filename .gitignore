@@ -1,0 +1,23 @@
+# Binary
+crm-agent
+crm-agent.exe
+
+# Data directory (created at runtime)
+*.db
+*.db-wal
+*.db-shm
+
+# TLS certificates (auto-generated)
+cert.pem
+key.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
