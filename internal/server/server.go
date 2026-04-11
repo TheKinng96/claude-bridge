@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"crm-agent/internal/connectors/facebook"
-	"crm-agent/internal/connectors/whatsapp"
-	"crm-agent/internal/mcp"
+	"claude-bridge/internal/connectors/facebook"
+	"claude-bridge/internal/connectors/whatsapp"
+	"claude-bridge/internal/mcp"
 )
 
 // Server is the HTTP server that serves the UI and API.
@@ -97,7 +97,7 @@ func (s *Server) Start() error {
 	s.mu.Unlock()
 
 	go func() {
-		log.Printf("CRM Agent HTTP  server running at http://%s", addr)
+		log.Printf("Claude Bridge HTTP  server running at http://%s", addr)
 		if err := http.Serve(ln, mux); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v", err)
 		}

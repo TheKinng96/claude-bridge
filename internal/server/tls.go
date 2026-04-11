@@ -54,7 +54,7 @@ func (s *Server) StartTLS(tlsPort int, dataDir string) error {
 	s.mu.Unlock()
 
 	go func() {
-		log.Printf("CRM Agent HTTPS server running at https://%s", addr)
+		log.Printf("Claude Bridge HTTPS server running at https://%s", addr)
 		log.Printf("  → Claude Desktop connector URL: https://127.0.0.1:%d/mcp/sse", tlsPort)
 		if err := http.Serve(ln, mux); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTPS server error: %v", err)
@@ -94,7 +94,7 @@ func ensureCert(certPath, keyPath string) error {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"CRM Agent (local)"},
+			Organization: []string{"Claude Bridge (local)"},
 			CommonName:   "127.0.0.1",
 		},
 		NotBefore: time.Now().Add(-1 * time.Hour),

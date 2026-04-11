@@ -5,7 +5,7 @@ const whatsappBusinessHTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CRM Agent — WhatsApp Business API Guide</title>
+<title>Claude Bridge — WhatsApp Business API Guide</title>
 <link rel="stylesheet" href="/static/theme.css">
 <script src="/static/theme.js"></script>
 <style>
@@ -21,7 +21,7 @@ const whatsappBusinessHTML = `<!DOCTYPE html>
 </head>
 <body>
 <nav class="topnav">
-	<div class="logo">CRM <span>Agent</span></div>
+	<div class="logo">Claude <span>Bridge</span></div>
 	<a href="/">Dashboard</a>
 	<a href="/setup/whatsapp" class="active">WhatsApp</a>
 	<a href="/setup/facebook">Facebook</a>
@@ -59,8 +59,8 @@ const whatsappBusinessHTML = `<!DOCTYPE html>
 		<p>In the Meta Developer Console under WhatsApp → Configuration, set the webhook URL to your server's public address: <code>https://your-domain.com/api/whatsapp/webhook</code>. Subscribe to <code>messages</code> events. The verify token should match your app config.</p>
 	</div>
 	<div class="step">
-		<div class="step-header"><div class="step-num">7</div><h3>Enter Credentials in CRM Agent</h3></div>
-		<p>Once Phase 2 of CRM Agent ships with Business API support, you'll enter your Phone Number ID and permanent access token in the settings page. The webhook will be handled automatically.</p>
+		<div class="step-header"><div class="step-num">7</div><h3>Enter Credentials in Claude Bridge</h3></div>
+		<p>Once Phase 2 of Claude Bridge ships with Business API support, you'll enter your Phone Number ID and permanent access token in the settings page. The webhook will be handled automatically.</p>
 	</div>
 </div>
 </body>

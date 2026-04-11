@@ -5,7 +5,7 @@ const whatsappHTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CRM Agent — WhatsApp</title>
+<title>Claude Bridge — WhatsApp</title>
 <link rel="stylesheet" href="/static/theme.css">
 <script src="/static/theme.js"></script>
 <style>
@@ -45,7 +45,7 @@ const whatsappHTML = `<!DOCTYPE html>
 </head>
 <body>
 <nav class="topnav">
-	<div class="logo">CRM <span>Agent</span></div>
+	<div class="logo">Claude <span>Bridge</span></div>
 	<a href="/">Dashboard</a>
 	<a href="/setup/whatsapp" class="active">WhatsApp</a>
 	<a href="/setup/facebook">Facebook</a>

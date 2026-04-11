@@ -5,7 +5,7 @@ const dashboardHTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CRM Agent — Dashboard</title>
+<title>Claude Bridge — Dashboard</title>
 <link rel="stylesheet" href="/static/theme.css">
 <script src="/static/theme.js"></script>
 <style>
@@ -73,7 +73,7 @@ const dashboardHTML = `<!DOCTYPE html>
 </head>
 <body>
 <nav class="topnav">
-	<div class="logo">CRM <span>Agent</span></div>
+	<div class="logo">Claude <span>Bridge</span></div>
 	<a href="/" class="active">Dashboard</a>
 	<a href="/setup/whatsapp">WhatsApp</a>
 	<a href="/setup/facebook">Facebook</a>
@@ -156,7 +156,7 @@ const dashboardHTML = `<!DOCTYPE html>
 		<div class="guide-step">
 			<div class="guide-num">1</div>
 			<div class="guide-text">
-				Clicking <strong>Install to Claude</strong> automatically adds CRM Agent to your Claude Desktop config file:
+				Clicking <strong>Install to Claude</strong> automatically adds Claude Bridge to your Claude Desktop config file:
 				<div class="copy-row" style="margin-top:8px;">
 					<div class="copy-field" id="fieldConfigPath" style="font-size:12px;color:var(--text-dim);">Detecting path...</div>
 				</div>
@@ -169,7 +169,7 @@ const dashboardHTML = `<!DOCTYPE html>
 		<div class="guide-step">
 			<div class="guide-num">3</div>
 			<div class="guide-text">
-				Make sure CRM Agent is running, then Claude has access to these tools:
+				Make sure Claude Bridge is running, then Claude has access to these tools:
 				<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
 					<div style="background:var(--code-bg);padding:8px 12px;border-radius:6px;font-size:13px;color:var(--text-muted);"><strong style="color:var(--accent);">get_whatsapp_status</strong> — check connection</div>
 					<div style="background:var(--code-bg);padding:8px 12px;border-radius:6px;font-size:13px;color:var(--text-muted);"><strong style="color:var(--accent);">send_whatsapp_message</strong> — send to any number</div>
@@ -178,8 +178,8 @@ const dashboardHTML = `<!DOCTYPE html>
 				</div>
 			</div>
 		</div>
-		<div class="guide-note">The MCP server proxies tool calls to the running HTTP server on port 10002. CRM Agent must be running for Claude to use the tools.</div>
-		<div class="guide-note" style="margin-top:8px;">For Claude Code, run: <code>crm-agent --mcp</code> directly, or add the same config to your Claude Code MCP settings.</div>
+		<div class="guide-note">The MCP server proxies tool calls to the running HTTP server on port 10002. Claude Bridge must be running for Claude to use the tools.</div>
+		<div class="guide-note" style="margin-top:8px;">For Claude Code, run: <code>claude-bridge --mcp</code> directly, or add the same config to your Claude Code MCP settings.</div>
 	</div>
 
 	<h2 class="section-title" style="margin-top:32px;">Recent Activity</h2>
@@ -325,7 +325,7 @@ function installClaude() {
 }
 
 function uninstallClaude() {
-	if (!confirm('Remove CRM Agent from Claude Desktop config?')) return;
+	if (!confirm('Remove Claude Bridge from Claude Desktop config?')) return;
 	fetch('/api/claude/uninstall', { method: 'POST' })
 		.then(r => r.json())
 		.then(data => {

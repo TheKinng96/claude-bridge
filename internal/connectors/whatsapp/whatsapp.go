@@ -21,7 +21,7 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
-	"crm-agent/internal/store"
+	"claude-bridge/internal/store"
 )
 
 // Message represents a WhatsApp message (sent or received).

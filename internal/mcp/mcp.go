@@ -3,11 +3,11 @@
 // Two transports are supported:
 //
 //  1. Stdio (primary) — JSON-RPC over stdin/stdout, for Claude Desktop and Claude Code.
-//     Launched via: crm-agent --mcp
+//     Launched via: claude-bridge --mcp
 //     Configure in claude_desktop_config.json as a local MCP server.
 //
 //  2. SSE — HTTP-based, available for remote MCP clients or future use.
-//     The CRM Agent HTTP server mounts this at /mcp/sse and /mcp/message.
+//     The Claude Bridge HTTP server mounts this at /mcp/sse and /mcp/message.
 package mcp
 
 import (
@@ -152,7 +152,7 @@ func getTools() []tool {
 }
 
 // ---------------------------------------------------------------------------
-// Tool execution (shared — calls the CRM Agent HTTP API on localhost)
+// Tool execution (shared — calls the Claude Bridge HTTP API on localhost)
 // ---------------------------------------------------------------------------
 
 type toolExecutor struct {
@@ -185,7 +185,7 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 func (e *toolExecutor) httpGet(path string) callToolResult {
 	resp, err := e.client.Get(e.baseURL + path)
 	if err != nil {
-		return errorResult(fmt.Sprintf("Cannot reach CRM Agent at %s — is the dashboard running? Start it with: ./crm-agent\nError: %v", e.baseURL, err))
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge at %s — is the dashboard running? Start it with: ./claude-bridge\nError: %v", e.baseURL, err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -207,7 +207,7 @@ func (e *toolExecutor) sendMessage(args json.RawMessage) callToolResult {
 	payload, _ := json.Marshal(params)
 	resp, err := e.client.Post(e.baseURL+"/api/whatsapp/send", "application/json", bytes.NewReader(payload))
 	if err != nil {
-		return errorResult(fmt.Sprintf("Cannot reach CRM Agent — is the dashboard running? Error: %v", err))
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
 	defer resp.Body.Close()
 
@@ -235,7 +235,7 @@ func (e *toolExecutor) readMessages(args json.RawMessage) callToolResult {
 
 	resp, err := e.client.Get(url)
 	if err != nil {
-		return errorResult(fmt.Sprintf("Cannot reach CRM Agent — is the dashboard running? Error: %v", err))
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -261,7 +261,7 @@ func (e *toolExecutor) listContacts(args json.RawMessage) callToolResult {
 
 	resp, err := e.client.Get(url)
 	if err != nil {
-		return errorResult(fmt.Sprintf("Cannot reach CRM Agent — is the dashboard running? Error: %v", err))
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -283,7 +283,7 @@ func handleRequest(req *jsonRPCRequest, exec *toolExecutor) *jsonRPCResponse {
 		return makeResult(req.ID, initResult{
 			ProtocolVersion: "2024-11-05",
 			Capabilities:    map[string]interface{}{"tools": map[string]interface{}{}},
-			ServerInfo:      serverInfo{Name: "crm-agent", Version: "1.0.0"},
+			ServerInfo:      serverInfo{Name: "claude-bridge", Version: "1.0.0"},
 		})
 
 	case "notifications/initialized":
@@ -437,7 +437,7 @@ type StdioServer struct {
 	logger *log.Logger
 }
 
-// NewStdioServer creates a stdio MCP server proxying to the given CRM Agent URL.
+// NewStdioServer creates a stdio MCP server proxying to the given Claude Bridge URL.
 func NewStdioServer(baseURL string) *StdioServer {
 	return &StdioServer{
 		exec:   newToolExecutor(baseURL),

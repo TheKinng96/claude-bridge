@@ -237,7 +237,7 @@ func navHTML(active string) string {
 		{"/setup/whatsapp", "WhatsApp"},
 		{"/setup/facebook", "Facebook"},
 	}
-	nav := `<nav class="topnav"><div class="logo">CRM <span>Agent</span></div>`
+	nav := `<nav class="topnav"><div class="logo">Claude <span>Bridge</span></div>`
 	for _, p := range pages {
 		cls := ""
 		if p.href == active {

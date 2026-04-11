@@ -1,6 +1,6 @@
 # Binary
-crm-agent
-crm-agent.exe
+claude-bridge
+claude-bridge.exe
 
 # Data directory (created at runtime)
 *.db

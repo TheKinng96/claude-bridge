@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"crm-agent/internal/connectors/facebook"
-	"crm-agent/internal/connectors/whatsapp"
-	"crm-agent/internal/mcp"
-	"crm-agent/internal/server"
-	"crm-agent/internal/store"
-	"crm-agent/internal/tray"
+	"claude-bridge/internal/connectors/facebook"
+	"claude-bridge/internal/connectors/whatsapp"
+	"claude-bridge/internal/mcp"
+	"claude-bridge/internal/server"
+	"claude-bridge/internal/store"
+	"claude-bridge/internal/tray"
 )
 
 const (
@@ -27,7 +27,7 @@ func main() {
 	port := flag.Int("port", defaultPort, "HTTP server port")
 	tlsPort := flag.Int("tls-port", defaultTLSPort, "HTTPS server port (for Claude Desktop connector)")
 	noTray := flag.Bool("no-tray", false, "Run without system tray (headless mode)")
-	dataDir := flag.String("data-dir", "", "Directory for session data (default: ~/.crm-agent)")
+	dataDir := flag.String("data-dir", "", "Directory for session data (default: ~/.claude-bridge)")
 	flag.Parse()
 
 	// Resolve data directory.
@@ -37,7 +37,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Cannot determine home directory: %v", err)
 		}
-		dd = filepath.Join(home, ".crm-agent")
+		dd = filepath.Join(home, ".claude-bridge")
 	}
 
 	// MCP stdio mode: run the stdio MCP server and exit.

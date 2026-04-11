@@ -30,7 +30,7 @@ func (s *Server) handleClaudeInstallCheck(w http.ResponseWriter, r *http.Request
 		var cfg map[string]interface{}
 		if json.Unmarshal(data, &cfg) == nil {
 			if servers, ok := cfg["mcpServers"].(map[string]interface{}); ok {
-				if _, ok := servers["crm-agent"]; ok {
+				if _, ok := servers["claude-bridge"]; ok {
 					installed = true
 				}
 			}
@@ -49,7 +49,7 @@ func (s *Server) handleClaudeInstallCheck(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// handleClaudeInstall writes the CRM Agent MCP server entry into the Claude Desktop config.
+// handleClaudeInstall writes the Claude Bridge MCP server entry into the Claude Desktop config.
 // POST /api/claude/install
 func (s *Server) handleClaudeInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -92,8 +92,8 @@ func (s *Server) handleClaudeInstall(w http.ResponseWriter, r *http.Request) {
 		servers = make(map[string]interface{})
 	}
 
-	// Add or update crm-agent entry.
-	servers["crm-agent"] = map[string]interface{}{
+	// Add or update claude-bridge entry.
+	servers["claude-bridge"] = map[string]interface{}{
 		"command": binaryPath,
 		"args":    []string{"--mcp"},
 	}
@@ -117,7 +117,7 @@ func (s *Server) handleClaudeInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[claude-install] Installed CRM Agent MCP server in %s", configPath)
+	log.Printf("[claude-install] Installed Claude Bridge MCP server in %s", configPath)
 	writeJSON(w, map[string]interface{}{
 		"ok":          true,
 		"config_path": configPath,
@@ -125,7 +125,7 @@ func (s *Server) handleClaudeInstall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleClaudeUninstall removes the CRM Agent entry from the Claude Desktop config.
+// handleClaudeUninstall removes the Claude Bridge entry from the Claude Desktop config.
 // POST /api/claude/uninstall
 func (s *Server) handleClaudeUninstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -157,13 +157,13 @@ func (s *Server) handleClaudeUninstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delete(servers, "crm-agent")
+	delete(servers, "claude-bridge")
 	cfg["mcpServers"] = servers
 
 	out, _ := json.MarshalIndent(cfg, "", "  ")
 	os.WriteFile(configPath, append(out, '\n'), 0644)
 
-	log.Printf("[claude-install] Removed CRM Agent from %s", configPath)
+	log.Printf("[claude-install] Removed Claude Bridge from %s", configPath)
 	writeJSON(w, map[string]interface{}{"ok": true})
 }
 

@@ -1,4 +1,4 @@
-module crm-agent
+module claude-bridge
 
 go 1.25.0
 

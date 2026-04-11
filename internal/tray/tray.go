@@ -42,12 +42,12 @@ func Run(port int, onQuit func()) {
 
 func onReady(port int, onQuit func()) {
 	systray.SetIcon(iconPNG)
-	systray.SetTitle("CRM Agent")
-	systray.SetTooltip(fmt.Sprintf("CRM Agent — localhost:%d", port))
+	systray.SetTitle("Claude Bridge")
+	systray.SetTooltip(fmt.Sprintf("Claude Bridge — localhost:%d", port))
 
-	mOpen := systray.AddMenuItem("Open Dashboard", "Open CRM Agent in your browser")
+	mOpen := systray.AddMenuItem("Open Dashboard", "Open Claude Bridge in your browser")
 	systray.AddSeparator()
-	mShutDown := systray.AddMenuItem("Shut Down", "Stop CRM Agent and exit")
+	mShutDown := systray.AddMenuItem("Shut Down", "Stop Claude Bridge and exit")
 
 	go func() {
 		for {

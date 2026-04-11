@@ -1,4 +1,4 @@
-# CRM Agent — Setup Guide
+# Claude Bridge — Setup Guide
 
 ## Prerequisites
 
@@ -11,90 +11,90 @@
 ## Build
 
 ```bash
-cd crm-agent
+cd claude-bridge
 go mod tidy
-CGO_ENABLED=1 go build -o crm-agent .
+CGO_ENABLED=1 go build -o claude-bridge .
 ```
 
-On Windows, the output will be `crm-agent.exe`.
+On Windows, the output will be `claude-bridge.exe`.
 
-## Run the CRM Agent
+## Run
 
 ```bash
 # Normal mode (HTTP server + system tray)
-./crm-agent
+./claude-bridge
 
 # Headless mode (no system tray, good for servers)
-./crm-agent --no-tray
+./claude-bridge --no-tray
 
 # Custom port
-./crm-agent --port 8080
+./claude-bridge --port 8080
 
 # Custom data directory
-./crm-agent --data-dir /path/to/data
+./claude-bridge --data-dir /path/to/data
 ```
 
 The dashboard opens at `http://127.0.0.1:10002`.
 
 ## Connect WhatsApp
 
-1. Start the CRM Agent
+1. Start Claude Bridge
 2. Open `http://127.0.0.1:10002/setup/whatsapp`
 3. Click **+ Add Account**
 4. Scan the QR code with your phone (WhatsApp → Settings → Linked Devices → Link a Device)
 5. Once connected, the account appears in the list with a green "Connected" badge
 
-You can add multiple WhatsApp accounts. Each account has Reconnect/Disconnect controls. Session data is stored in `~/.crm-agent/whatsapp/whatsapp.db` (SQLite) and `~/.crm-agent/app.db` (account list). Sessions persist across restarts — you won't need to scan again unless you log out or remove the account.
+You can add multiple WhatsApp accounts. Each account has Reconnect/Disconnect controls. Session data is stored in `~/.claude-bridge/whatsapp/whatsapp.db` (SQLite) and `~/.claude-bridge/app.db` (account list). Sessions persist across restarts — you won't need to scan again unless you log out or remove the account.
 
 ## Connect to Claude Desktop
 
-The CRM Agent has a built-in MCP server so Claude can send and read WhatsApp messages through your connected accounts.
+Claude Bridge has a built-in MCP server so Claude can interact with your connected accounts.
 
-### Step 1: Build and start CRM Agent
+### Option A: One-click install (recommended)
 
-Follow the Build section above, then run `./crm-agent`.
+1. Open the dashboard at `http://127.0.0.1:10002`
+2. Click **Install to Claude** on the Claude Desktop card
+3. Restart Claude Desktop
 
-### Step 2: Add the MCP server config
+### Option B: Manual config
 
 Open your Claude Desktop config file:
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-Add the CRM Agent MCP server:
+Add the Claude Bridge MCP server:
 
 ```json
 {
   "mcpServers": {
-    "crm-agent": {
-      "command": "/full/path/to/crm-agent",
+    "claude-bridge": {
+      "command": "/full/path/to/claude-bridge",
       "args": ["--mcp"]
     }
   }
 }
 ```
 
-Replace `/full/path/to/crm-agent` with the actual path to your binary. If you already have other MCP servers, merge the `"crm-agent"` entry into your existing `"mcpServers"` object.
+Replace `/full/path/to/claude-bridge` with the actual path to your binary. If you already have other MCP servers, merge the `"claude-bridge"` entry into your existing `"mcpServers"` object.
 
-### Step 3: Restart Claude Desktop
+Then restart Claude Desktop.
 
-Restart Claude Desktop to load the new MCP server.
+### Use it
 
-### Step 4: Use it
-
-Make sure the CRM Agent dashboard is running (the MCP tools proxy to the running HTTP server), then in Claude you'll have these tools:
+Make sure the Claude Bridge dashboard is running (the MCP tools proxy to the running HTTP server), then in Claude you'll have these tools:
 
 - **get_whatsapp_status** — Check connection status and account count
 - **send_whatsapp_message** — Send a message to any phone number
 - **read_whatsapp_messages** — Read recent messages (all or by chat)
-- **list_whatsapp_contacts** — List all contacts who have messaged
+- **list_whatsapp_contacts** — Search and list contacts
 
 ### How it works
 
-The CRM Agent runs as one process with a dashboard + HTTP API. The MCP server (stdio mode) proxies Claude's tool calls to the running HTTP server:
+Claude Bridge runs as one process with a dashboard + HTTP API. The MCP server (stdio mode) proxies Claude's tool calls to the running HTTP server:
 
 ```
-Claude Desktop ←→ [stdio JSON-RPC] ←→ crm-agent --mcp ←→ http://127.0.0.1:10002/api/* ←→ WhatsApp
+Claude Desktop ←→ [stdio JSON-RPC] ←→ claude-bridge --mcp ←→ http://127.0.0.1:10002/api/* ←→ WhatsApp
 ```
 
 > **Note**: Claude Desktop's "custom connectors" route through Anthropic's cloud and cannot reach localhost. That's why we use the local MCP config (stdio mode) instead — it runs the binary directly on your machine.
@@ -106,8 +106,8 @@ Same approach works for Claude Code. Add to your MCP settings:
 ```json
 {
   "mcpServers": {
-    "crm-agent": {
-      "command": "/full/path/to/crm-agent",
+    "claude-bridge": {
+      "command": "/full/path/to/claude-bridge",
       "args": ["--mcp"]
     }
   }
@@ -117,12 +117,12 @@ Same approach works for Claude Code. Add to your MCP settings:
 Or test manually:
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | ./crm-agent --mcp
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | ./claude-bridge --mcp
 ```
 
 ## Data Storage
 
-All data is stored locally in `~/.crm-agent/`:
+All data is stored locally in `~/.claude-bridge/`:
 
 - `app.db` — Account list and metadata (SQLite)
 - `whatsapp/whatsapp.db` — WhatsApp sessions (SQLite, managed by whatsmeow)
@@ -131,17 +131,17 @@ All data is stored locally in `~/.crm-agent/`:
 
 ## Troubleshooting
 
-**"Cannot reach CRM Agent" in Claude**
-→ Make sure the CRM Agent dashboard is running (`./crm-agent`) before using Claude. The MCP tools proxy to the HTTP server on port 10002.
+**"Cannot reach Claude Bridge" in Claude**
+→ Make sure the Claude Bridge dashboard is running (`./claude-bridge`) before using Claude. The MCP tools proxy to the HTTP server on port 10002.
 
 **QR code not appearing**
 → Check the terminal/logs for errors. Ensure you have internet access and the SQLite build succeeded.
 
 **WhatsApp disconnects after a while**
-→ This can happen if the phone goes offline for extended periods. Use the Reconnect button on the WhatsApp page, or restart the CRM Agent (it auto-reconnects saved accounts on boot).
+→ This can happen if the phone goes offline for extended periods. Use the Reconnect button on the WhatsApp page, or restart Claude Bridge (it auto-reconnects saved accounts on boot).
 
 **Build fails with "cgo: C compiler not found"**
 → Install a C compiler (see Prerequisites above). SQLite requires cgo.
 
 **Account shows "Disconnected" after restart**
-→ The CRM Agent auto-reconnects on boot. Check the logs — if the session expired, you may need to remove and re-add the account via QR scan.
+→ Claude Bridge auto-reconnects on boot. Check the logs — if the session expired, you may need to remove and re-add the account via QR scan.
