@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite — no CGO needed
 	qrcode "github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -96,7 +96,7 @@ func (m *Manager) initContainer() error {
 	dbURI := fmt.Sprintf("file:%s?_foreign_keys=on", dbPath)
 	logger := waLog.Stdout("whatsmeow", "INFO", true)
 
-	container, err := sqlstore.New(context.Background(), "sqlite3", dbURI, logger)
+	container, err := sqlstore.New(context.Background(), "sqlite", dbURI, logger)
 	if err != nil {
 		return fmt.Errorf("init sqlstore: %w", err)
 	}
