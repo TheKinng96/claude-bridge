@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"claude-bridge/internal/browser"
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/mcp"
@@ -60,14 +62,21 @@ func main() {
 
 	// Normal mode: start HTTP + HTTPS servers + optional system tray.
 	wa := whatsapp.NewManager(filepath.Join(dd, "whatsapp"), appStore)
-	fb := facebook.New()
+
+	// Browser engine for all browser-based connectors (Facebook, Instagram, etc).
+	browserEngine := browser.NewEngine(filepath.Join(dd, "browser"), true) // headless by default
+	browserEngine.EnsureBrowser() // start checking/downloading Chrome in background
+	fb := facebook.New(browserEngine, appStore)
 
 	// Boot reconnects previously connected WhatsApp accounts.
 	if err := wa.Boot(); err != nil {
 		log.Printf("WARNING: WhatsApp boot failed: %v", err)
 	}
 
-	srv := server.New(wa, fb, *port)
+	// Boot loads saved Facebook Messenger OAuth config and starts polling if connected.
+	fb.Boot(context.Background())
+
+	srv := server.New(wa, fb, appStore, browserEngine, *port)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
@@ -92,12 +101,14 @@ func main() {
 		<-sigCh
 		log.Println("Shutting down...")
 		wa.DisconnectAll()
+		browserEngine.Stop()
 		srv.Stop()
 	} else {
 		// System tray mode: blocks until user quits via tray.
 		tray.Run(*port, func() {
 			log.Println("Shutting down via tray...")
 			wa.DisconnectAll()
+			browserEngine.Stop()
 			srv.Stop()
 		})
 	}

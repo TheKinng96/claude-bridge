@@ -1,7 +1,12 @@
 package tray
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"runtime"
@@ -9,19 +14,58 @@ import (
 	"github.com/getlantern/systray"
 )
 
-// iconPNG is a 22x22 blue speech-bubble icon embedded as raw PNG bytes.
-// Shows in macOS menu bar (top) and Windows notification area (bottom-right).
-var iconPNG = []byte{
-	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-	0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x16,
-	0x08, 0x06, 0x00, 0x00, 0x00, 0xc4, 0xb4, 0x6c, 0x3b, 0x00, 0x00, 0x00,
-	0x38, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0x18, 0x05, 0xd8,
-	0x80, 0xb5, 0xff, 0x8d, 0xff, 0x94, 0x60, 0x9a, 0x18, 0x8a, 0xd3, 0xf0,
-	0x51, 0x83, 0x47, 0x0d, 0x1e, 0x35, 0x18, 0x8f, 0xc1, 0xd4, 0x30, 0x1c,
-	0xab, 0xa1, 0x84, 0x2c, 0x20, 0xa8, 0x89, 0x18, 0x40, 0x75, 0x03, 0x91,
-	0x0d, 0xa6, 0xaa, 0x81, 0xa3, 0x80, 0x26, 0x00, 0x00, 0x45, 0x01, 0x0d,
-	0xdc, 0x1f, 0xc1, 0x2e, 0x88, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
-	0x44, 0xae, 0x42, 0x60, 0x82,
+// generateIcon creates a 64x64 PNG icon at runtime — a blue circle with
+// a white speech-bubble shape. Works on both macOS (menu bar) and Windows
+// (notification area, which needs ≥32x32).
+func generateIcon() []byte {
+	const size = 64
+	const cx, cy = size / 2, size / 2
+	const radius = 28.0
+
+	img := image.NewRGBA(image.Rect(0, 0, size, size))
+	blue := color.RGBA{R: 59, G: 130, B: 246, A: 255}   // Tailwind blue-500
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+
+	// Draw blue circle
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			dx := float64(x) - float64(cx)
+			dy := float64(y) - float64(cy)
+			dist := math.Sqrt(dx*dx + dy*dy)
+			if dist <= radius {
+				img.Set(x, y, blue)
+			}
+		}
+	}
+
+	// Draw small white "CB" text approximation (two dots for simplicity)
+	// Actually, draw a simple chat bubble shape in white
+	for y := cy - 8; y <= cy + 4; y++ {
+		for x := cx - 10; x <= cx + 10; x++ {
+			// Rounded rectangle for bubble
+			rx := float64(x - cx)
+			ry := float64(y - (cy - 2))
+			if math.Abs(rx) <= 10 && math.Abs(ry) <= 6 {
+				// Round corners
+				cornerDist := 0.0
+				if math.Abs(rx) > 7 && math.Abs(ry) > 3 {
+					cornerDist = math.Sqrt(math.Pow(math.Abs(rx)-7, 2) + math.Pow(math.Abs(ry)-3, 2))
+				}
+				if cornerDist <= 3 {
+					img.Set(x, y, white)
+				}
+			}
+		}
+	}
+	// Bubble tail
+	img.Set(cx-3, cy+5, white)
+	img.Set(cx-4, cy+6, white)
+	img.Set(cx-2, cy+5, white)
+	img.Set(cx-5, cy+7, white)
+
+	var buf bytes.Buffer
+	png.Encode(&buf, img)
+	return buf.Bytes()
 }
 
 // Run starts the system tray icon. This function blocks until the user
@@ -41,7 +85,7 @@ func Run(port int, onQuit func()) {
 }
 
 func onReady(port int, onQuit func()) {
-	systray.SetIcon(iconPNG)
+	systray.SetIcon(generateIcon())
 	systray.SetTitle("Claude Bridge")
 	systray.SetTooltip(fmt.Sprintf("Claude Bridge — localhost:%d", port))
 

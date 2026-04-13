@@ -9,25 +9,30 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"claude-bridge/internal/browser"
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/mcp"
+	"claude-bridge/internal/store"
 )
 
 // Server is the HTTP server that serves the UI and API.
 type Server struct {
-	wa          *whatsapp.Manager
-	fb          *facebook.Connector
-	port        int
-	listener    net.Listener
-	tlsListener net.Listener
-	mu          sync.Mutex
+	wa            *whatsapp.Manager
+	fb            *facebook.Connector
+	store         *store.Store
+	browserEngine *browser.Engine
+	port          int
+	listener      net.Listener
+	tlsListener   net.Listener
+	mu            sync.Mutex
 }
 
 // New creates a new server. Pass the connectors so the API can interact with them.
-func New(wa *whatsapp.Manager, fb *facebook.Connector, port int) *Server {
-	return &Server{wa: wa, fb: fb, port: port}
+func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
+	return &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port}
 }
 
 // buildMux creates the HTTP route mux. Shared between HTTP and HTTPS servers.
@@ -66,9 +71,32 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/claude/install", s.handleClaudeInstall)
 	mux.HandleFunc("/api/claude/uninstall", s.handleClaudeUninstall)
 
-	// API — Facebook
-	mux.HandleFunc("/api/facebook/connect", s.handleFBConnect)
+	// API — Facebook (browser automation for posting)
+	mux.HandleFunc("/api/facebook/credentials", s.handleFBCredentials)
+	mux.HandleFunc("/api/facebook/login", s.handleFBLogin)
 	mux.HandleFunc("/api/facebook/disconnect", s.handleFBDisconnect)
+	mux.HandleFunc("/api/facebook/status", s.handleFBStatus)
+	mux.HandleFunc("/api/facebook/post", s.handleFBCreatePost)
+	mux.HandleFunc("/api/facebook/healthcheck", s.handleFBHealthCheck)
+
+	// API — Facebook Messenger (Graph API)
+	mux.HandleFunc("/api/facebook/messenger/oauth/config", s.handleFBMessengerOAuthConfig)
+	mux.HandleFunc("/api/facebook/messenger/oauth/start", s.handleFBMessengerOAuthStart)
+	mux.HandleFunc("/api/facebook/messenger/oauth/callback", s.handleFBMessengerOAuthCallback)
+	mux.HandleFunc("/api/facebook/messenger/status", s.handleFBMessengerStatus)
+	mux.HandleFunc("/api/facebook/messenger/disconnect", s.handleFBMessengerDisconnect)
+	mux.HandleFunc("/api/facebook/messenger/conversations", s.handleFBMessengerConversations)
+	mux.HandleFunc("/api/facebook/messenger/messages", s.handleFBMessengerMessages)
+	mux.HandleFunc("/api/facebook/messenger/send", s.handleFBMessengerSend)
+	mux.HandleFunc("/api/facebook/messenger/polling", s.handleFBMessengerPolling)
+
+	// OAuth callback (served on HTTPS for Facebook redirect)
+	mux.HandleFunc("/callback", s.handleFBMessengerOAuthCallback)
+
+	// API — Browser engine
+	mux.HandleFunc("/api/browser/status", s.handleBrowserStatus)
+	mux.HandleFunc("/api/browser/setup", s.handleBrowserSetup)
+	mux.HandleFunc("/api/browser/headless", s.handleBrowserHeadless)
 
 	// MCP-related API endpoints (used by the MCP server to proxy into the running app)
 	mux.HandleFunc("/api/whatsapp/send", s.handleWASend)
@@ -174,6 +202,7 @@ type waStatusResp struct {
 
 type fbStatus struct {
 	Connected bool   `json:"connected"`
+	UserName  string `json:"user_name,omitempty"`
 	PageName  string `json:"page_name,omitempty"`
 }
 
@@ -192,6 +221,7 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 		},
 		Facebook: fbStatus{
 			Connected: s.fb.IsConnected(),
+			UserName:  s.fb.UserName(),
 			PageName:  s.fb.PageName(),
 		},
 		MessageCount: s.wa.MessageCount(),
@@ -301,26 +331,67 @@ func (s *Server) handleWAQR(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleFBConnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+// handleFBCredentials saves or retrieves Facebook credentials.
+func (s *Server) handleFBCredentials(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if r.Method == http.MethodGet {
+		cred, err := s.fb.GetCredentials(ctx)
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		if cred == nil {
+			writeJSON(w, map[string]interface{}{"ok": true, "saved": false})
+			return
+		}
+		// Don't return the actual password
+		writeJSON(w, map[string]interface{}{
+			"ok":    true,
+			"saved": true,
+			"email": cred.Email,
+		})
 		return
 	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var body struct {
-		PageID string `json:"page_id"`
-		Token  string `json:"token"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
 		return
 	}
-	if err := s.fb.Connect(body.PageID, body.Token); err != nil {
+	if body.Email == "" || body.Password == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "email and password required"})
+		return
+	}
+
+	if err := s.fb.SaveCredentials(ctx, body.Email, body.Password, nil); err != nil {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true})
 }
 
+// handleFBLogin triggers a Facebook login.
+func (s *Server) handleFBLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.fb.Login(r.Context()); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "user_name": s.fb.UserName()})
+}
+
+// handleFBDisconnect disconnects Facebook.
 func (s *Server) handleFBDisconnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
@@ -328,6 +399,329 @@ func (s *Server) handleFBDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	s.fb.Disconnect()
 	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// handleFBStatus returns Facebook connection status.
+func (s *Server) handleFBStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]interface{}{
+		"connected": s.fb.IsConnected(),
+		"user_name": s.fb.UserName(),
+		"page_name": s.fb.PageName(),
+	})
+}
+
+// --- Facebook Messenger API handlers ---
+
+func (s *Server) handleFBMessengerOAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		oauth := s.fb.Messenger.GetOAuthConfig()
+		if oauth == nil {
+			writeJSON(w, map[string]interface{}{"ok": true, "configured": false})
+			return
+		}
+		writeJSON(w, map[string]interface{}{
+			"ok":         true,
+			"configured": true,
+			"app_id":     oauth.AppID,
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		AppID     string `json:"app_id"`
+		AppSecret string `json:"app_secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.AppID == "" || body.AppSecret == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "app_id and app_secret required"})
+		return
+	}
+	redirectURI := fmt.Sprintf("https://127.0.0.1:%d/callback", s.tlsPort())
+	if err := s.fb.Messenger.SetOAuthConfig(r.Context(), body.AppID, body.AppSecret, redirectURI); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "redirect_uri": redirectURI})
+}
+
+func (s *Server) handleFBMessengerOAuthStart(w http.ResponseWriter, r *http.Request) {
+	state := fmt.Sprintf("%d", time.Now().UnixNano())
+	oauthURL, err := s.fb.Messenger.GetOAuthURL(state)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "url": oauthURL, "state": state})
+}
+
+func (s *Server) handleFBMessengerOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		errMsg := r.URL.Query().Get("error_description")
+		if errMsg == "" {
+			errMsg = "No authorization code received"
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body><h2>Authorization Failed</h2><p>%s</p><p>You can close this tab.</p></body></html>`, errMsg)
+		return
+	}
+
+	if err := s.fb.Messenger.HandleOAuthCallback(r.Context(), code); err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body><h2>Connection Failed</h2><p>%s</p><p>Please try again from the dashboard.</p></body></html>`, err.Error())
+		return
+	}
+
+	// Start polling after successful OAuth
+	s.fb.Messenger.StartPolling(r.Context())
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, `<html><body><h2>Connected!</h2><p>Facebook Messenger is now connected. You can close this tab and return to the dashboard.</p><script>setTimeout(function(){window.close();},3000);</script></body></html>`)
+}
+
+func (s *Server) handleFBMessengerStatus(w http.ResponseWriter, r *http.Request) {
+	connected := s.fb.Messenger.IsConnected()
+	resp := map[string]interface{}{
+		"connected": connected,
+		"polling":   s.fb.Messenger.IsPolling(),
+	}
+	if connected {
+		pt := s.fb.Messenger.GetPageInfo()
+		if pt != nil {
+			resp["page_id"] = pt.PageID
+			resp["page_name"] = pt.PageName
+		}
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleFBMessengerDisconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	s.fb.Messenger.Disconnect(r.Context())
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+func (s *Server) handleFBMessengerConversations(w http.ResponseWriter, r *http.Request) {
+	limit := 25
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	refresh := r.URL.Query().Get("refresh") == "true"
+
+	if !refresh {
+		// Try cached first
+		contacts, lastSynced, err := s.store.GetCachedContacts(r.Context(), "facebook", "", limit)
+		if err == nil && len(contacts) > 0 {
+			writeJSON(w, map[string]interface{}{
+				"ok":           true,
+				"conversations": contacts,
+				"cached":       true,
+				"synced_at":    lastSynced,
+				"total":        len(contacts),
+			})
+			return
+		}
+	}
+
+	conversations, err := s.fb.Messenger.GetConversations(r.Context(), limit)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok":           true,
+		"conversations": conversations,
+		"cached":       false,
+		"synced_at":    time.Now(),
+		"total":        len(conversations),
+	})
+}
+
+func (s *Server) handleFBMessengerMessages(w http.ResponseWriter, r *http.Request) {
+	conversationID := r.URL.Query().Get("conversation")
+	if conversationID == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "conversation parameter required"})
+		return
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	refresh := r.URL.Query().Get("refresh") == "true"
+
+	if !refresh {
+		msgs, lastSynced, err := s.store.GetCachedMessages(r.Context(), "facebook", conversationID, limit)
+		if err == nil && len(msgs) > 0 {
+			writeJSON(w, map[string]interface{}{
+				"ok":        true,
+				"messages":  msgs,
+				"cached":    true,
+				"synced_at": lastSynced,
+			})
+			return
+		}
+	}
+
+	msgs, err := s.fb.Messenger.GetMessages(r.Context(), conversationID, limit)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok":        true,
+		"messages":  msgs,
+		"cached":    false,
+		"synced_at": time.Now(),
+	})
+}
+
+func (s *Server) handleFBMessengerSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		RecipientID string `json:"recipient_id"`
+		Message     string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.RecipientID == "" || body.Message == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "recipient_id and message required"})
+		return
+	}
+	if err := s.fb.Messenger.SendMessage(r.Context(), body.RecipientID, body.Message); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+func (s *Server) handleFBMessengerPolling(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{"polling": s.fb.Messenger.IsPolling()})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.Enabled {
+		s.fb.Messenger.StartPolling(r.Context())
+	} else {
+		s.fb.Messenger.StopPolling()
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "polling": body.Enabled})
+}
+
+// tlsPort returns the TLS port from the listener.
+func (s *Server) tlsPort() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tlsListener != nil {
+		addr := s.tlsListener.Addr().String()
+		parts := strings.Split(addr, ":")
+		if len(parts) > 0 {
+			if p, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+				return p
+			}
+		}
+	}
+	return 10003 // default
+}
+
+// handleFBCreatePost creates a Facebook post.
+func (s *Server) handleFBCreatePost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Content string `json:"content"`
+		PageURL string `json:"page_url,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.Content == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "content required"})
+		return
+	}
+	if err := s.fb.CreatePost(r.Context(), body.Content, body.PageURL); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// handleFBHealthCheck runs the Facebook health check.
+func (s *Server) handleFBHealthCheck(w http.ResponseWriter, r *http.Request) {
+	if err := s.fb.HealthCheck(r.Context()); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// handleBrowserStatus returns the current browser engine setup status.
+func (s *Server) handleBrowserStatus(w http.ResponseWriter, r *http.Request) {
+	status := s.browserEngine.GetSetupStatus()
+	writeJSON(w, status)
+}
+
+// handleBrowserSetup triggers browser setup check (finds Chrome or downloads Chromium).
+func (s *Server) handleBrowserSetup(w http.ResponseWriter, r *http.Request) {
+	status := s.browserEngine.CheckAndSetup()
+	writeJSON(w, status)
+}
+
+// handleBrowserHeadless toggles headless mode for the browser engine.
+func (s *Server) handleBrowserHeadless(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]interface{}{
+			"headless": s.browserEngine.IsHeadless(),
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Headless bool `json:"headless"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	s.browserEngine.SetHeadless(body.Headless)
+	writeJSON(w, map[string]interface{}{"ok": true, "headless": body.Headless})
 }
 
 // --- MCP proxy API endpoints ---

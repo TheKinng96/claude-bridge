@@ -57,6 +57,21 @@ const dashboardHTML = `<!DOCTYPE html>
 .activity-time { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 .empty-state { padding: 48px; text-align: center; color: var(--text-dim); font-size: 14px; }
 
+/* Browser setup banner */
+.browser-setup-banner { background: var(--bg-card); border: 1px solid var(--accent); border-radius: 12px; padding: 20px 24px; margin-bottom: 24px; box-shadow: var(--shadow); }
+.browser-setup-banner.error { border-color: var(--red, #dc3545); }
+.browser-setup-banner.ready { border-color: var(--green, #28a745); }
+.browser-setup-inner { display: flex; align-items: center; gap: 16px; }
+.browser-setup-icon { flex-shrink: 0; }
+.browser-setup-text strong { font-size: 15px; color: var(--text); }
+.browser-progress-bar { margin-top: 16px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.browser-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.5s ease; animation: indeterminate 1.5s ease-in-out infinite; width: 40%; }
+@keyframes indeterminate { 0% { margin-left: 0; width: 30%; } 50% { margin-left: 30%; width: 40%; } 100% { margin-left: 70%; width: 30%; } }
+
+/* Disabled connector overlay */
+.connector-card.disabled { opacity: 0.5; pointer-events: none; position: relative; }
+.connector-card.disabled::after { content: 'Waiting for automation bot...'; position: absolute; right: 24px; font-size: 12px; color: var(--text-dim); font-style: italic; }
+
 /* Health check overlay */
 .health-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(2px); }
 .health-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 32px 40px; min-width: 340px; max-width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
@@ -82,6 +97,20 @@ const dashboardHTML = `<!DOCTYPE html>
 </nav>
 
 <div class="container">
+	<!-- Browser Engine Setup Banner -->
+	<div class="browser-setup-banner" id="browserBanner" style="display:none;">
+		<div class="browser-setup-inner">
+			<div class="browser-setup-icon"><div class="health-spinner" style="width:24px;height:24px;border-width:3px;"></div></div>
+			<div class="browser-setup-text">
+				<strong id="browserSetupTitle">Setting up automation bot...</strong>
+				<div id="browserSetupMsg" style="font-size:13px;color:var(--text-dim);margin-top:4px;">Checking for Chrome/Chromium</div>
+			</div>
+		</div>
+		<div class="browser-progress-bar" id="browserProgressBar" style="display:none;">
+			<div class="browser-progress-fill" id="browserProgressFill"></div>
+		</div>
+	</div>
+
 	<div class="status-bar" id="statusBar">
 		<div class="status-pill">
 			<span class="status-dot red" id="waDot"></span>
@@ -90,6 +119,10 @@ const dashboardHTML = `<!DOCTYPE html>
 		<div class="status-pill">
 			<span class="status-dot red" id="fbDot"></span>
 			<span id="fbStatus">Facebook: Disconnected</span>
+		</div>
+		<div class="status-pill" id="browserPill" style="display:none;">
+			<span class="status-dot" id="browserDot"></span>
+			<span id="browserStatusText">Browser: Checking</span>
 		</div>
 	</div>
 
@@ -122,11 +155,11 @@ const dashboardHTML = `<!DOCTYPE html>
 		</div>
 		<a href="/setup/whatsapp" class="btn btn-primary" id="waBtn">Connect</a>
 	</div>
-	<div class="connector-card">
+	<div class="connector-card" id="fbCard">
 		<div class="connector-info">
 			<div class="connector-icon fb">📘</div>
 			<div class="connector-details">
-				<h4>Facebook Messenger</h4>
+				<h4>Facebook</h4>
 				<p id="fbDetail">Not connected</p>
 			</div>
 		</div>
@@ -199,6 +232,8 @@ const dashboardHTML = `<!DOCTYPE html>
 </div>
 
 <script>
+var browserReady = false;
+
 function pollStatus() {
 	fetch('/api/status')
 		.then(r => r.json())
@@ -225,16 +260,21 @@ function pollStatus() {
 			}
 
 			const fbDot = document.getElementById('fbDot');
-			const fbStatus = document.getElementById('fbStatus');
+			const fbStatusEl = document.getElementById('fbStatus');
 			const fbDetail = document.getElementById('fbDetail');
+			const fbBtn = document.getElementById('fbBtn');
 			if (fb.connected) {
 				fbDot.className = 'status-dot green';
-				fbStatus.textContent = 'Facebook: Connected';
-				fbDetail.textContent = 'Page: ' + (fb.page_name || 'unknown');
+				fbStatusEl.textContent = 'Facebook: Connected';
+				fbDetail.textContent = fb.user_name ? ('Logged in as ' + fb.user_name) : 'Connected';
+				fbBtn.textContent = 'Manage';
+				fbBtn.className = 'btn btn-success';
 			} else {
 				fbDot.className = 'status-dot red';
-				fbStatus.textContent = 'Facebook: Disconnected';
-				fbDetail.textContent = 'Not connected';
+				fbStatusEl.textContent = 'Facebook: Disconnected';
+				fbDetail.textContent = browserReady ? 'Not connected' : 'Waiting for automation bot...';
+				fbBtn.textContent = 'Setup';
+				fbBtn.className = 'btn btn-outline';
 			}
 
 			let active = 0;
@@ -246,8 +286,77 @@ function pollStatus() {
 		})
 		.catch(() => {});
 }
+
+// --- Browser engine status ---
+function pollBrowserStatus() {
+	fetch('/api/browser/status')
+		.then(r => r.json())
+		.then(data => {
+			const banner = document.getElementById('browserBanner');
+			const title = document.getElementById('browserSetupTitle');
+			const msg = document.getElementById('browserSetupMsg');
+			const progressBar = document.getElementById('browserProgressBar');
+			const pill = document.getElementById('browserPill');
+			const dot = document.getElementById('browserDot');
+			const dotText = document.getElementById('browserStatusText');
+			const fbCard = document.getElementById('fbCard');
+
+			pill.style.display = '';
+
+			if (data.status === 'ready') {
+				browserReady = true;
+				banner.style.display = 'none';
+				dot.className = 'status-dot green';
+				dotText.textContent = 'Automation Bot: Ready';
+				fbCard.classList.remove('disabled');
+			} else if (data.status === 'downloading') {
+				browserReady = false;
+				banner.style.display = '';
+				banner.className = 'browser-setup-banner';
+				title.textContent = 'Setting up automation bot...';
+				msg.textContent = data.message || 'Downloading automation components (~150MB, first time only)';
+				progressBar.style.display = '';
+				dot.className = 'status-dot yellow';
+				dotText.textContent = 'Automation Bot: Setting up...';
+				fbCard.classList.add('disabled');
+			} else if (data.status === 'checking') {
+				browserReady = false;
+				banner.style.display = '';
+				banner.className = 'browser-setup-banner';
+				title.textContent = 'Setting up automation bot...';
+				msg.textContent = data.message || 'Looking for Chrome/Chromium';
+				progressBar.style.display = 'none';
+				dot.className = 'status-dot yellow';
+				dotText.textContent = 'Automation Bot: Checking...';
+				fbCard.classList.add('disabled');
+			} else if (data.status === 'error') {
+				browserReady = false;
+				banner.style.display = '';
+				banner.className = 'browser-setup-banner error';
+				title.textContent = 'Browser setup failed';
+				msg.textContent = data.error || 'Unknown error';
+				progressBar.style.display = 'none';
+				dot.className = 'status-dot red';
+				dotText.textContent = 'Automation Bot: Error';
+				fbCard.classList.add('disabled');
+			} else {
+				// not_checked — trigger setup
+				browserReady = false;
+				banner.style.display = '';
+				title.textContent = 'Initializing browser engine...';
+				msg.textContent = 'Starting up...';
+				progressBar.style.display = 'none';
+				fbCard.classList.add('disabled');
+				fetch('/api/browser/setup').then(r => r.json());
+			}
+		})
+		.catch(() => {});
+}
+
 pollStatus();
+pollBrowserStatus();
 setInterval(pollStatus, 3000);
+setInterval(pollBrowserStatus, 2000);
 
 function toggleGuide() {
 	const panel = document.getElementById('guidePanel');
@@ -373,6 +482,7 @@ function runHealthCheck() {
 	// Define checks.
 	var checks = [
 		{ id: 'http',    label: 'HTTP server',          status: 'checking' },
+		{ id: 'browser', label: 'Browser engine',       status: 'checking' },
 		{ id: 'wa',      label: 'WhatsApp accounts',    status: 'checking' },
 		{ id: 'claude',  label: 'Claude Desktop config', status: 'checking' }
 	];
@@ -419,7 +529,7 @@ function runHealthCheck() {
 	render();
 
 	var done = 0;
-	var total = 3;
+	var total = 4;
 	function checkDone() { done++; if (done >= total) finish(); }
 
 	// Check 1: HTTP server (we're already on it, so just confirm API responds).
@@ -444,7 +554,24 @@ function runHealthCheck() {
 		checkDone();
 	});
 
-	// Check 3: Claude Desktop config.
+	// Check 3: Browser engine.
+	fetch('/api/browser/status').then(function(r) { return r.json(); }).then(function(data) {
+		if (data.status === 'ready') {
+			setCheck('browser', 'ok', 'Automation bot: ready');
+		} else if (data.status === 'downloading') {
+			setCheck('browser', 'warn', 'Browser engine: downloading Chromium...');
+		} else if (data.status === 'error') {
+			setCheck('browser', 'fail', 'Browser engine: ' + (data.error || 'setup failed'));
+		} else {
+			setCheck('browser', 'warn', 'Browser engine: setting up...');
+		}
+		checkDone();
+	}).catch(function() {
+		setCheck('browser', 'warn', 'Browser engine: could not check');
+		checkDone();
+	});
+
+	// Check 4: Claude Desktop config.
 	fetch('/api/claude/status').then(function(r) { return r.json(); }).then(function(data) {
 		if (!data.supported) {
 			setCheck('claude', 'warn', 'Claude Desktop: auto-install not supported on this OS');

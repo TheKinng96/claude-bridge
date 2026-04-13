@@ -1,6 +1,6 @@
 # Claude Bridge
 
-Bridge your personal accounts to Claude. Connect WhatsApp, Facebook Pages, and more — then let Claude work with them through MCP (Model Context Protocol).
+Bridge your personal accounts to Claude. Connect WhatsApp, Xiao Hong Shu, LinkedIn, Instagram, Facebook, and more — then let Claude work with them through MCP (Model Context Protocol).
 
 ## What it does
 
@@ -9,6 +9,9 @@ Claude Bridge is a single Go binary that runs locally on your machine. It connec
 **Currently supported:**
 
 - **WhatsApp** — Link your personal WhatsApp via QR code scan. Claude can read messages, send replies, and search contacts.
+- **Xiao Hong Shu** *(coming soon)* — Connect your Xiao Hong Shu account. Claude can create and manage posts.
+- **LinkedIn** *(coming soon)* — Connect your LinkedIn profile. Claude can create posts and manage content.
+- **Instagram** *(coming soon)* — Connect your Instagram account. Claude can create posts and manage content.
 - **Facebook Pages** *(coming soon)* — Connect your Facebook Page. Claude can create posts, schedule content, and check engagement.
 
 **Features:**
@@ -80,12 +83,12 @@ Once connected, Claude has access to:
 │  (browser)       │                        │ HTTP Server     │
 └─────────────────┘                        └──────┬─────────┘
                                                    │
-                                    ┌──────────────┼──────────────┐
-                                    │              │              │
-                             ┌──────▼──────┐ ┌────▼─────┐ ┌─────▼─────┐
-                             │  WhatsApp   │ │ Facebook │ │   More    │
-                             │ (whatsmeow) │ │  Pages   │ │  coming   │
-                             └─────────────┘ └──────────┘ └───────────┘
+                          ┌──────────┼──────────┼──────────┼──────────┐
+                          │          │          │          │          │
+                   ┌──────▼───┐ ┌────▼────┐ ┌──▼───┐ ┌───▼────┐ ┌───▼────┐
+                   │ WhatsApp │ │Xiao Hong│ │Linke-│ │Insta-  │ │Facebook│
+                   │(whatsmeow│ │  Shu    │ │ dIn  │ │ gram   │ │ Pages  │
+                   └──────────┘ └─────────┘ └──────┘ └────────┘ └────────┘
 ```
 
 ## Data storage
@@ -105,6 +108,7 @@ Each device gets a fresh database — nothing is shared or synced.
   - macOS: `xcode-select --install`
   - Windows: [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or MSYS2
   - Linux: `sudo apt install build-essential`
+- Chrome or Chromium (for browser-based connectors: Facebook, Instagram, LinkedIn, Xiao Hong Shu). If not installed, Claude Bridge will auto-download Chromium (~150MB) on first use.
 
 See [SETUP.md](SETUP.md) for detailed build and configuration instructions.
 
@@ -113,10 +117,11 @@ See [SETUP.md](SETUP.md) for detailed build and configuration instructions.
 - [x] WhatsApp connector (personal mode, QR scan, multi-account)
 - [x] MCP server with Claude Desktop one-click install
 - [x] Web dashboard with health checks
+- [ ] Xiao Hong Shu (create and manage posts)
+- [ ] LinkedIn (create posts, manage content)
+- [ ] Instagram (create posts, manage content)
 - [ ] Facebook Pages (create posts, schedule content)
 - [ ] Persistent message storage
-- [ ] Telegram bot connector
-- [ ] Instagram business connector
 
 ## License
 

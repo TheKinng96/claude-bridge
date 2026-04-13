@@ -92,6 +92,7 @@ type callToolResult struct {
 
 func getTools() []tool {
 	return []tool{
+		// --- WhatsApp tools ---
 		{
 			Name:        "get_whatsapp_status",
 			Description: "Get the current WhatsApp connection status, including whether connected, the phone number, and message/contact counts.",
@@ -148,6 +149,90 @@ func getTools() []tool {
 				},
 			},
 		},
+		// --- Facebook tools ---
+		{
+			Name:        "get_facebook_status",
+			Description: "Get the current Facebook connection status, including whether logged in and the user name.",
+			InputSchema: inputSchema{
+				Type:       "object",
+				Properties: map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "create_facebook_post",
+			Description: "Create a text post on Facebook. Optionally specify a page URL to post to a specific Facebook Page instead of the user's timeline.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "The text content of the post",
+					},
+					"page_url": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: Facebook Page URL to post to (e.g., 'https://www.facebook.com/YourPageName'). Leave empty to post to personal timeline.",
+					},
+				},
+				Required: []string{"content"},
+			},
+		},
+		{
+			Name:        "read_facebook_messages",
+			Description: "Read Facebook Messenger messages for a specific conversation. Uses the official Graph API. Returns cached messages by default with a 'synced_at' timestamp. Set refresh=true to fetch fresh messages from the API. If data is stale, ask the user if they want to refresh.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"conversation_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The conversation ID to read messages from (required). Get conversation IDs from list_facebook_contacts.",
+					},
+					"refresh": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Set to true to fetch fresh messages from the Graph API. Default false returns cached data.",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of messages to return (default 50).",
+					},
+				},
+				Required: []string{"conversation_id"},
+			},
+		},
+		{
+			Name:        "send_facebook_message",
+			Description: "Send a message on Facebook Messenger to a user via the Page. Uses the official Graph API Send API. The recipient_id is the user's Facebook ID (get it from list_facebook_contacts).",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"recipient_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The recipient's Facebook user ID to send the message to",
+					},
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "The text message to send",
+					},
+				},
+				Required: []string{"recipient_id", "message"},
+			},
+		},
+		{
+			Name:        "list_facebook_contacts",
+			Description: "List Facebook Messenger conversations (contacts who have messaged the Page). Uses the official Graph API. Returns cached data by default with a 'synced_at' timestamp. Set refresh=true to fetch fresh data. If data is stale, suggest refreshing.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of conversations to return (default 25).",
+					},
+					"refresh": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Set to true to fetch fresh conversations from the Graph API. Default false returns cached data.",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -169,6 +254,7 @@ func newToolExecutor(baseURL string) *toolExecutor {
 
 func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult {
 	switch name {
+	// WhatsApp
 	case "get_whatsapp_status":
 		return e.httpGet("/api/status")
 	case "send_whatsapp_message":
@@ -177,6 +263,17 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 		return e.readMessages(args)
 	case "list_whatsapp_contacts":
 		return e.listContacts(args)
+	// Facebook
+	case "get_facebook_status":
+		return e.httpGet("/api/facebook/status")
+	case "create_facebook_post":
+		return e.createFBPost(args)
+	case "read_facebook_messages":
+		return e.readFBMessages(args)
+	case "send_facebook_message":
+		return e.sendFBMessage(args)
+	case "list_facebook_contacts":
+		return e.listFBContacts(args)
 	default:
 		return errorResult(fmt.Sprintf("Unknown tool: %s", name))
 	}
@@ -266,6 +363,154 @@ func (e *toolExecutor) listContacts(args json.RawMessage) callToolResult {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+// --- Facebook tool implementations ---
+
+func (e *toolExecutor) createFBPost(args json.RawMessage) callToolResult {
+	var params struct {
+		Content string `json:"content"`
+		PageURL string `json:"page_url"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'content'")
+	}
+	if params.Content == "" {
+		return errorResult("'content' is required")
+	}
+
+	payload, _ := json.Marshal(params)
+	resp, err := e.client.Post(e.baseURL+"/api/facebook/post", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	if ok, _ := result["ok"].(bool); ok {
+		return callToolResult{Content: []contentItem{{Type: "text", Text: "Facebook post created successfully."}}}
+	}
+	errMsg, _ := result["error"].(string)
+	return errorResult(fmt.Sprintf("Failed to create post: %s", errMsg))
+}
+
+func (e *toolExecutor) readFBMessages(args json.RawMessage) callToolResult {
+	var params struct {
+		ConversationID string `json:"conversation_id"`
+		Refresh        bool   `json:"refresh"`
+		Limit          int    `json:"limit"`
+	}
+	json.Unmarshal(args, &params)
+
+	if params.ConversationID == "" {
+		return errorResult("'conversation_id' is required — use list_facebook_contacts to get conversation IDs")
+	}
+
+	url := e.baseURL + "/api/facebook/messenger/messages?"
+	url += "conversation=" + params.ConversationID + "&"
+	if params.Refresh {
+		url += "refresh=true&"
+	}
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	url += fmt.Sprintf("limit=%d", limit)
+
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Parse to add cache info to the response
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	cached, _ := result["cached"].(bool)
+	prefix := ""
+	if cached {
+		if syncedAt, ok := result["synced_at"].(string); ok {
+			prefix = fmt.Sprintf("⚡ This is cached data (last synced: %s). To get fresh data, set refresh=true.\n\n", syncedAt)
+		}
+	}
+
+	return callToolResult{Content: []contentItem{{Type: "text", Text: prefix + string(body)}}}
+}
+
+func (e *toolExecutor) sendFBMessage(args json.RawMessage) callToolResult {
+	var params struct {
+		RecipientID string `json:"recipient_id"`
+		Message     string `json:"message"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'recipient_id' and 'message'")
+	}
+	if params.RecipientID == "" || params.Message == "" {
+		return errorResult("Both 'recipient_id' and 'message' are required")
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"recipient_id": params.RecipientID,
+		"message":      params.Message,
+	})
+	resp, err := e.client.Post(e.baseURL+"/api/facebook/messenger/send", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	if ok, _ := result["ok"].(bool); ok {
+		return callToolResult{Content: []contentItem{{Type: "text", Text: fmt.Sprintf("Message sent to %s successfully via Messenger API.", params.RecipientID)}}}
+	}
+	errMsg, _ := result["error"].(string)
+	return errorResult(fmt.Sprintf("Failed to send: %s", errMsg))
+}
+
+func (e *toolExecutor) listFBContacts(args json.RawMessage) callToolResult {
+	var params struct {
+		Limit   int  `json:"limit"`
+		Refresh bool `json:"refresh"`
+	}
+	json.Unmarshal(args, &params)
+
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 25
+	}
+
+	url := fmt.Sprintf("%s/api/facebook/messenger/conversations?limit=%d", e.baseURL, limit)
+	if params.Refresh {
+		url += "&refresh=true"
+	}
+
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	cached, _ := result["cached"].(bool)
+	prefix := ""
+	if cached {
+		if syncedAt, ok := result["synced_at"].(string); ok {
+			prefix = fmt.Sprintf("⚡ This is cached data (last synced: %s). To get fresh data, set refresh=true.\n\n", syncedAt)
+		}
+	}
+
+	return callToolResult{Content: []contentItem{{Type: "text", Text: prefix + string(body)}}}
 }
 
 func errorResult(msg string) callToolResult {
