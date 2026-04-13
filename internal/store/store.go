@@ -81,6 +81,20 @@ type CachedPost struct {
 	LastSynced time.Time `json:"last_synced"`
 }
 
+// CachedComment stores a comment on a post from any platform.
+type CachedComment struct {
+	ID         int64     `json:"id"`
+	Platform   string    `json:"platform"`
+	PostID     string    `json:"post_id"`
+	CommentID  string    `json:"comment_id"`
+	AuthorID   string    `json:"author_id"`
+	AuthorName string    `json:"author_name"`
+	Content    string    `json:"content"`
+	Likes      int       `json:"likes"`
+	Timestamp  time.Time `json:"timestamp"`
+	LastSynced time.Time `json:"last_synced"`
+}
+
 // HealthCheckResult stores the result of a connector health check.
 type HealthCheckResult struct {
 	ID        int64     `json:"id"`
@@ -188,6 +202,21 @@ func (s *Store) migrate() error {
 			UNIQUE(platform, post_id)
 		)`,
 
+		// Cached comments on posts
+		`CREATE TABLE IF NOT EXISTS cached_comments (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			platform    TEXT NOT NULL,
+			post_id     TEXT NOT NULL,
+			comment_id  TEXT NOT NULL,
+			author_id   TEXT NOT NULL DEFAULT '',
+			author_name TEXT NOT NULL DEFAULT '',
+			content     TEXT NOT NULL DEFAULT '',
+			likes       INTEGER NOT NULL DEFAULT 0,
+			timestamp   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_synced DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(platform, comment_id)
+		)`,
+
 		// Health check results
 		`CREATE TABLE IF NOT EXISTS health_checks (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,6 +231,7 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_cached_messages_platform ON cached_messages(platform, conversation_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_cached_messages_timestamp ON cached_messages(platform, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_cached_posts_platform ON cached_posts(platform, posted_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_cached_comments_post ON cached_comments(platform, post_id, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_health_checks_platform ON health_checks(platform, checked_at DESC)`,
 	}
 
@@ -509,6 +539,55 @@ func (s *Store) GetCachedPosts(ctx context.Context, platform string, limit int) 
 		posts = append(posts, p)
 	}
 	return posts, lastSynced, nil
+}
+
+// ---------------------------------------------------------------------------
+// Cached Comments
+// ---------------------------------------------------------------------------
+
+// UpsertCachedComment inserts or updates a cached comment.
+func (s *Store) UpsertCachedComment(ctx context.Context, c *CachedComment) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO cached_comments (platform, post_id, comment_id, author_id, author_name, content, likes, timestamp, last_synced)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(platform, comment_id) DO UPDATE SET
+			author_name = excluded.author_name,
+			content = excluded.content,
+			likes = excluded.likes,
+			last_synced = excluded.last_synced
+	`, c.Platform, c.PostID, c.CommentID, c.AuthorID, c.AuthorName, c.Content, c.Likes, c.Timestamp, time.Now())
+	return err
+}
+
+// GetCachedComments returns cached comments for a post.
+func (s *Store) GetCachedComments(ctx context.Context, platform, postID string, limit int) ([]CachedComment, time.Time, error) {
+	var lastSynced time.Time
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, platform, post_id, comment_id, author_id, author_name, content, likes, timestamp, last_synced
+		FROM cached_comments WHERE platform = ? AND post_id = ? ORDER BY timestamp DESC LIMIT ?
+	`, platform, postID, limit)
+	if err != nil {
+		return nil, lastSynced, err
+	}
+	defer rows.Close()
+
+	var comments []CachedComment
+	for rows.Next() {
+		var c CachedComment
+		if err := rows.Scan(&c.ID, &c.Platform, &c.PostID, &c.CommentID, &c.AuthorID, &c.AuthorName, &c.Content, &c.Likes, &c.Timestamp, &c.LastSynced); err != nil {
+			return nil, lastSynced, err
+		}
+		if c.LastSynced.After(lastSynced) {
+			lastSynced = c.LastSynced
+		}
+		comments = append(comments, c)
+	}
+	return comments, lastSynced, nil
 }
 
 // ---------------------------------------------------------------------------

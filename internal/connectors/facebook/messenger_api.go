@@ -553,6 +553,172 @@ func (m *MessengerAPI) IsPolling() bool {
 	return m.polling
 }
 
+// ---------------------------------------------------------------------------
+// Posts (Graph API)
+// ---------------------------------------------------------------------------
+
+// GetPosts fetches recent posts from the Page.
+func (m *MessengerAPI) GetPosts(ctx context.Context, limit int) ([]store.CachedPost, error) {
+	m.mu.RLock()
+	pt := m.pageToken
+	m.mu.RUnlock()
+
+	if pt == nil {
+		return nil, fmt.Errorf("not connected — complete OAuth first")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	apiURL := fmt.Sprintf("%s/%s/posts?fields=id,message,created_time,permalink_url,shares,likes.summary(true),comments.summary(true)&limit=%d&access_token=%s",
+		graphAPIBase, pt.PageID, limit, url.QueryEscape(pt.AccessToken))
+
+	resp, err := m.httpClient.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch posts: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			ID          string    `json:"id"`
+			Message     string    `json:"message"`
+			CreatedTime time.Time `json:"created_time"`
+			PermalinkURL string   `json:"permalink_url"`
+			Shares      *struct {
+				Count int `json:"count"`
+			} `json:"shares"`
+			Likes struct {
+				Summary struct {
+					TotalCount int `json:"total_count"`
+				} `json:"summary"`
+			} `json:"likes"`
+			Comments struct {
+				Summary struct {
+					TotalCount int `json:"total_count"`
+				} `json:"summary"`
+			} `json:"comments"`
+		} `json:"data"`
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse posts: %w — body: %s", err, string(body))
+	}
+
+	var posts []store.CachedPost
+	for _, p := range result.Data {
+		shares := 0
+		if p.Shares != nil {
+			shares = p.Shares.Count
+		}
+		post := store.CachedPost{
+			Platform: platformName,
+			PostID:   p.ID,
+			Content:  p.Message,
+			PostURL:  p.PermalinkURL,
+			PostedAt: p.CreatedTime,
+			Likes:    p.Likes.Summary.TotalCount,
+			Comments: p.Comments.Summary.TotalCount,
+			Shares:   shares,
+		}
+		posts = append(posts, post)
+		m.store.UpsertCachedPost(ctx, &post)
+	}
+
+	return posts, nil
+}
+
+// GetComments fetches comments on a specific post.
+func (m *MessengerAPI) GetComments(ctx context.Context, postID string, limit int) ([]store.CachedComment, error) {
+	m.mu.RLock()
+	pt := m.pageToken
+	m.mu.RUnlock()
+
+	if pt == nil {
+		return nil, fmt.Errorf("not connected — complete OAuth first")
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	apiURL := fmt.Sprintf("%s/%s/comments?fields=id,from,message,created_time,like_count&limit=%d&access_token=%s",
+		graphAPIBase, postID, limit, url.QueryEscape(pt.AccessToken))
+
+	resp, err := m.httpClient.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch comments: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			ID          string    `json:"id"`
+			Message     string    `json:"message"`
+			CreatedTime time.Time `json:"created_time"`
+			LikeCount   int       `json:"like_count"`
+			From        struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"from"`
+		} `json:"data"`
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse comments: %w — body: %s", err, string(body))
+	}
+
+	var comments []store.CachedComment
+	for _, c := range result.Data {
+		comment := store.CachedComment{
+			Platform:   platformName,
+			PostID:     postID,
+			CommentID:  c.ID,
+			AuthorID:   c.From.ID,
+			AuthorName: c.From.Name,
+			Content:    c.Message,
+			Likes:      c.LikeCount,
+			Timestamp:  c.CreatedTime,
+		}
+		comments = append(comments, comment)
+		m.store.UpsertCachedComment(ctx, &comment)
+	}
+
+	return comments, nil
+}
+
+// ReplyToComment posts a reply to a comment.
+func (m *MessengerAPI) ReplyToComment(ctx context.Context, commentID, message string) error {
+	m.mu.RLock()
+	pt := m.pageToken
+	m.mu.RUnlock()
+
+	if pt == nil {
+		return fmt.Errorf("not connected — complete OAuth first")
+	}
+
+	apiURL := fmt.Sprintf("%s/%s/comments?access_token=%s",
+		graphAPIBase, commentID, url.QueryEscape(pt.AccessToken))
+
+	payload, _ := json.Marshal(map[string]string{"message": message})
+	resp, err := m.httpClient.Post(apiURL, "application/json", strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("reply to comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("reply failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	m.logger.Printf("[messenger] Replied to comment %s", commentID)
+	return nil
+}
+
 func (m *MessengerAPI) pollOnce(ctx context.Context) {
 	conversations, err := m.GetConversations(ctx, 10)
 	if err != nil {

@@ -152,7 +152,7 @@ func getTools() []tool {
 		// --- Facebook tools ---
 		{
 			Name:        "get_facebook_status",
-			Description: "Get the current Facebook connection status, including whether logged in and the user name.",
+			Description: "Get the current Facebook connection status, including whether logged in, the user name, profile picture URL, connected page name, and Messenger polling status.",
 			InputSchema: inputSchema{
 				Type:       "object",
 				Properties: map[string]interface{}{},
@@ -233,6 +233,158 @@ func getTools() []tool {
 				},
 			},
 		},
+		{
+			Name:        "get_facebook_posts",
+			Description: "Get recent posts from the connected Facebook Page. Uses the Graph API. Returns cached data by default with a 'synced_at' timestamp. Set refresh=true to fetch fresh data.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of posts to return (default 20).",
+					},
+					"refresh": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Set to true to fetch fresh posts from the Graph API. Default false returns cached data.",
+					},
+				},
+			},
+		},
+		{
+			Name:        "get_facebook_comments",
+			Description: "Get comments on a specific Facebook post. Uses the Graph API. Returns cached data by default. Set refresh=true to fetch fresh data.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"post_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The post ID to get comments for (required). Get post IDs from get_facebook_posts.",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of comments to return (default 50).",
+					},
+					"refresh": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Set to true to fetch fresh comments from the Graph API. Default false returns cached data.",
+					},
+				},
+				Required: []string{"post_id"},
+			},
+		},
+		{
+			Name:        "reply_facebook_comment",
+			Description: "Reply to a comment on a Facebook post. Uses the Graph API.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"comment_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The comment ID to reply to (required). Get comment IDs from get_facebook_comments.",
+					},
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "The reply text",
+					},
+				},
+				Required: []string{"comment_id", "message"},
+			},
+		},
+		{
+			Name:        "get_facebook_analytics",
+			Description: "Get engagement analytics for the connected Facebook Page — total likes, comments, shares, and average engagement per post.",
+			InputSchema: inputSchema{
+				Type:       "object",
+				Properties: map[string]interface{}{},
+			},
+		},
+		// --- Batch tools (work across platforms) ---
+		{
+			Name:        "batch_facebook_posts",
+			Description: "Submit multiple Facebook posts as a batch. The app queues them and posts one by one with human-like delays (default 5-10 seconds between each) to avoid rate limits. Returns a batch_id to track progress. Use get_batch_status to check progress.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"posts": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of post objects, each with 'content' (required) and optional 'page_url'",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"content":  map[string]interface{}{"type": "string"},
+								"page_url": map[string]interface{}{"type": "string"},
+							},
+						},
+					},
+					"min_delay_seconds": map[string]interface{}{
+						"type":        "integer",
+						"description": "Minimum seconds between posts (default 5)",
+					},
+					"max_delay_seconds": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum seconds between posts (default 10)",
+					},
+				},
+				Required: []string{"posts"},
+			},
+		},
+		{
+			Name:        "batch_facebook_messages",
+			Description: "Submit multiple Facebook Messenger messages as a batch. The app sends them one by one with human-like delays. Returns a batch_id to track progress.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"messages": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of message objects, each with 'recipient_id' and 'message'",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"recipient_id": map[string]interface{}{"type": "string"},
+								"message":      map[string]interface{}{"type": "string"},
+							},
+						},
+					},
+					"min_delay_seconds": map[string]interface{}{
+						"type":        "integer",
+						"description": "Minimum seconds between messages (default 5)",
+					},
+					"max_delay_seconds": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum seconds between messages (default 10)",
+					},
+				},
+				Required: []string{"messages"},
+			},
+		},
+		{
+			Name:        "get_batch_status",
+			Description: "Check the progress of a batch operation. Returns how many jobs are completed, running, pending, or failed.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"batch_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The batch ID returned from a batch_facebook_posts or batch_facebook_messages call",
+					},
+				},
+				Required: []string{"batch_id"},
+			},
+		},
+		{
+			Name:        "cancel_batch",
+			Description: "Cancel a running batch operation. Jobs already completed stay completed, but remaining jobs are cancelled.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"batch_id": map[string]interface{}{
+						"type":        "string",
+						"description": "The batch ID to cancel",
+					},
+				},
+				Required: []string{"batch_id"},
+			},
+		},
 	}
 }
 
@@ -274,6 +426,23 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 		return e.sendFBMessage(args)
 	case "list_facebook_contacts":
 		return e.listFBContacts(args)
+	case "get_facebook_posts":
+		return e.getFBPosts(args)
+	case "get_facebook_comments":
+		return e.getFBComments(args)
+	case "reply_facebook_comment":
+		return e.replyFBComment(args)
+	case "get_facebook_analytics":
+		return e.httpGet("/api/facebook/messenger/analytics")
+	// Batch
+	case "batch_facebook_posts":
+		return e.batchFBPosts(args)
+	case "batch_facebook_messages":
+		return e.batchFBMessages(args)
+	case "get_batch_status":
+		return e.getBatchStatus(args)
+	case "cancel_batch":
+		return e.cancelBatch(args)
 	default:
 		return errorResult(fmt.Sprintf("Unknown tool: %s", name))
 	}
@@ -511,6 +680,203 @@ func (e *toolExecutor) listFBContacts(args json.RawMessage) callToolResult {
 	}
 
 	return callToolResult{Content: []contentItem{{Type: "text", Text: prefix + string(body)}}}
+}
+
+func (e *toolExecutor) getFBPosts(args json.RawMessage) callToolResult {
+	var params struct {
+		Limit   int  `json:"limit"`
+		Refresh bool `json:"refresh"`
+	}
+	json.Unmarshal(args, &params)
+
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	url := fmt.Sprintf("%s/api/facebook/messenger/posts?limit=%d", e.baseURL, limit)
+	if params.Refresh {
+		url += "&refresh=true"
+	}
+
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	cached, _ := result["cached"].(bool)
+	prefix := ""
+	if cached {
+		if syncedAt, ok := result["synced_at"].(string); ok {
+			prefix = fmt.Sprintf("⚡ This is cached data (last synced: %s). To get fresh data, set refresh=true.\n\n", syncedAt)
+		}
+	}
+
+	return callToolResult{Content: []contentItem{{Type: "text", Text: prefix + string(body)}}}
+}
+
+func (e *toolExecutor) getFBComments(args json.RawMessage) callToolResult {
+	var params struct {
+		PostID  string `json:"post_id"`
+		Limit   int    `json:"limit"`
+		Refresh bool   `json:"refresh"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'post_id'")
+	}
+	if params.PostID == "" {
+		return errorResult("'post_id' is required — use get_facebook_posts to get post IDs")
+	}
+
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	url := fmt.Sprintf("%s/api/facebook/messenger/comments?post_id=%s&limit=%d", e.baseURL, params.PostID, limit)
+	if params.Refresh {
+		url += "&refresh=true"
+	}
+
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	cached, _ := result["cached"].(bool)
+	prefix := ""
+	if cached {
+		if syncedAt, ok := result["synced_at"].(string); ok {
+			prefix = fmt.Sprintf("⚡ This is cached data (last synced: %s). To get fresh data, set refresh=true.\n\n", syncedAt)
+		}
+	}
+
+	return callToolResult{Content: []contentItem{{Type: "text", Text: prefix + string(body)}}}
+}
+
+func (e *toolExecutor) batchFBPosts(args json.RawMessage) callToolResult {
+	var params struct {
+		Posts    []map[string]string `json:"posts"`
+		MinDelay int                `json:"min_delay_seconds"`
+		MaxDelay int                `json:"max_delay_seconds"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'posts' array")
+	}
+	if len(params.Posts) == 0 {
+		return errorResult("'posts' array is required and must not be empty")
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"platform":          "facebook",
+		"type":              "create_post",
+		"items":             params.Posts,
+		"min_delay_seconds": params.MinDelay,
+		"max_delay_seconds": params.MaxDelay,
+	})
+	resp, err := e.client.Post(e.baseURL+"/api/batch/submit", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+func (e *toolExecutor) batchFBMessages(args json.RawMessage) callToolResult {
+	var params struct {
+		Messages []map[string]string `json:"messages"`
+		MinDelay int                 `json:"min_delay_seconds"`
+		MaxDelay int                 `json:"max_delay_seconds"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'messages' array")
+	}
+	if len(params.Messages) == 0 {
+		return errorResult("'messages' array is required and must not be empty")
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"platform":          "facebook",
+		"type":              "send_message",
+		"items":             params.Messages,
+		"min_delay_seconds": params.MinDelay,
+		"max_delay_seconds": params.MaxDelay,
+	})
+	resp, err := e.client.Post(e.baseURL+"/api/batch/submit", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+func (e *toolExecutor) getBatchStatus(args json.RawMessage) callToolResult {
+	var params struct {
+		BatchID string `json:"batch_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.BatchID == "" {
+		return errorResult("'batch_id' is required")
+	}
+	return e.httpGet("/api/batch/status?batch_id=" + params.BatchID)
+}
+
+func (e *toolExecutor) cancelBatch(args json.RawMessage) callToolResult {
+	var params struct {
+		BatchID string `json:"batch_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.BatchID == "" {
+		return errorResult("'batch_id' is required")
+	}
+	payload, _ := json.Marshal(params)
+	resp, err := e.client.Post(e.baseURL+"/api/batch/cancel", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+func (e *toolExecutor) replyFBComment(args json.RawMessage) callToolResult {
+	var params struct {
+		CommentID string `json:"comment_id"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'comment_id' and 'message'")
+	}
+	if params.CommentID == "" || params.Message == "" {
+		return errorResult("Both 'comment_id' and 'message' are required")
+	}
+
+	payload, _ := json.Marshal(params)
+	resp, err := e.client.Post(e.baseURL+"/api/facebook/messenger/comments/reply", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+
+	if ok, _ := result["ok"].(bool); ok {
+		return callToolResult{Content: []contentItem{{Type: "text", Text: fmt.Sprintf("Reply posted to comment %s successfully.", params.CommentID)}}}
+	}
+	errMsg, _ := result["error"].(string)
+	return errorResult(fmt.Sprintf("Failed to reply: %s", errMsg))
 }
 
 func errorResult(msg string) callToolResult {

@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"context"
+
+	"claude-bridge/internal/batch"
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/whatsapp"
@@ -24,6 +27,7 @@ type Server struct {
 	fb            *facebook.Connector
 	store         *store.Store
 	browserEngine *browser.Engine
+	batchQueue    *batch.Queue
 	port          int
 	listener      net.Listener
 	tlsListener   net.Listener
@@ -32,7 +36,25 @@ type Server struct {
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
-	return &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port}
+	s := &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port}
+	s.batchQueue = batch.NewQueue(s.executeBatchJob)
+	return s
+}
+
+// executeBatchJob is the callback the batch queue uses to run each job.
+func (s *Server) executeBatchJob(ctx context.Context, jobType batch.JobType, platform string, params map[string]string) error {
+	switch platform {
+	case "facebook":
+		switch jobType {
+		case batch.JobCreatePost:
+			return s.fb.CreatePost(ctx, params["content"], params["page_url"])
+		case batch.JobSendMessage:
+			return s.fb.Messenger.SendMessage(ctx, params["recipient_id"], params["message"])
+		case batch.JobReplyComment:
+			return s.fb.Messenger.ReplyToComment(ctx, params["comment_id"], params["message"])
+		}
+	}
+	return fmt.Errorf("unsupported: %s/%s", platform, jobType)
 }
 
 // buildMux creates the HTTP route mux. Shared between HTTP and HTTPS servers.
@@ -89,6 +111,16 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/facebook/messenger/messages", s.handleFBMessengerMessages)
 	mux.HandleFunc("/api/facebook/messenger/send", s.handleFBMessengerSend)
 	mux.HandleFunc("/api/facebook/messenger/polling", s.handleFBMessengerPolling)
+	mux.HandleFunc("/api/facebook/messenger/posts", s.handleFBMessengerPosts)
+	mux.HandleFunc("/api/facebook/messenger/comments", s.handleFBMessengerComments)
+	mux.HandleFunc("/api/facebook/messenger/comments/reply", s.handleFBMessengerReplyComment)
+	mux.HandleFunc("/api/facebook/messenger/analytics", s.handleFBMessengerAnalytics)
+
+	// API — Batch queue
+	mux.HandleFunc("/api/batch/submit", s.handleBatchSubmit)
+	mux.HandleFunc("/api/batch/status", s.handleBatchStatus)
+	mux.HandleFunc("/api/batch/list", s.handleBatchList)
+	mux.HandleFunc("/api/batch/cancel", s.handleBatchCancel)
 
 	// OAuth callback (served on HTTPS for Facebook redirect)
 	mux.HandleFunc("/callback", s.handleFBMessengerOAuthCallback)
@@ -201,9 +233,10 @@ type waStatusResp struct {
 }
 
 type fbStatus struct {
-	Connected bool   `json:"connected"`
-	UserName  string `json:"user_name,omitempty"`
-	PageName  string `json:"page_name,omitempty"`
+	Connected  bool   `json:"connected"`
+	UserName   string `json:"user_name,omitempty"`
+	ProfilePic string `json:"profile_pic,omitempty"`
+	PageName   string `json:"page_name,omitempty"`
 }
 
 func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
@@ -220,9 +253,10 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 			QRError:        s.wa.QRError(),
 		},
 		Facebook: fbStatus{
-			Connected: s.fb.IsConnected(),
-			UserName:  s.fb.UserName(),
-			PageName:  s.fb.PageName(),
+			Connected:  s.fb.IsConnected(),
+			UserName:   s.fb.UserName(),
+			ProfilePic: s.fb.ProfilePic(),
+			PageName:   s.fb.PageName(),
 		},
 		MessageCount: s.wa.MessageCount(),
 		ContactCount: s.wa.ContactCount(),
@@ -404,9 +438,10 @@ func (s *Server) handleFBDisconnect(w http.ResponseWriter, r *http.Request) {
 // handleFBStatus returns Facebook connection status.
 func (s *Server) handleFBStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
-		"connected": s.fb.IsConnected(),
-		"user_name": s.fb.UserName(),
-		"page_name": s.fb.PageName(),
+		"connected":   s.fb.IsConnected(),
+		"user_name":   s.fb.UserName(),
+		"profile_pic": s.fb.ProfilePic(),
+		"page_name":   s.fb.PageName(),
 	})
 }
 
@@ -637,6 +672,226 @@ func (s *Server) handleFBMessengerPolling(w http.ResponseWriter, r *http.Request
 		s.fb.Messenger.StopPolling()
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "polling": body.Enabled})
+}
+
+func (s *Server) handleFBMessengerPosts(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	refresh := r.URL.Query().Get("refresh") == "true"
+
+	if !refresh {
+		posts, lastSynced, err := s.store.GetCachedPosts(r.Context(), "facebook", limit)
+		if err == nil && len(posts) > 0 {
+			writeJSON(w, map[string]interface{}{
+				"ok":        true,
+				"posts":     posts,
+				"cached":    true,
+				"synced_at": lastSynced,
+				"total":     len(posts),
+			})
+			return
+		}
+	}
+
+	posts, err := s.fb.Messenger.GetPosts(r.Context(), limit)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok":        true,
+		"posts":     posts,
+		"cached":    false,
+		"synced_at": time.Now(),
+		"total":     len(posts),
+	})
+}
+
+func (s *Server) handleFBMessengerComments(w http.ResponseWriter, r *http.Request) {
+	postID := r.URL.Query().Get("post_id")
+	if postID == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "post_id parameter required"})
+		return
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	refresh := r.URL.Query().Get("refresh") == "true"
+
+	if !refresh {
+		comments, lastSynced, err := s.store.GetCachedComments(r.Context(), "facebook", postID, limit)
+		if err == nil && len(comments) > 0 {
+			writeJSON(w, map[string]interface{}{
+				"ok":        true,
+				"comments":  comments,
+				"cached":    true,
+				"synced_at": lastSynced,
+				"total":     len(comments),
+			})
+			return
+		}
+	}
+
+	comments, err := s.fb.Messenger.GetComments(r.Context(), postID, limit)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok":        true,
+		"comments":  comments,
+		"cached":    false,
+		"synced_at": time.Now(),
+		"total":     len(comments),
+	})
+}
+
+func (s *Server) handleFBMessengerReplyComment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		CommentID string `json:"comment_id"`
+		Message   string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.CommentID == "" || body.Message == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "comment_id and message required"})
+		return
+	}
+	if err := s.fb.Messenger.ReplyToComment(r.Context(), body.CommentID, body.Message); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// handleFBMessengerAnalytics returns Page-level analytics/insights.
+func (s *Server) handleFBMessengerAnalytics(w http.ResponseWriter, r *http.Request) {
+	// Fetch posts and compute aggregate stats
+	posts, lastSynced, err := s.store.GetCachedPosts(r.Context(), "facebook", 100)
+	if err != nil || len(posts) == 0 {
+		// Try fetching fresh
+		posts, err = s.fb.Messenger.GetPosts(r.Context(), 100)
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		lastSynced = time.Now()
+	}
+
+	totalLikes := 0
+	totalComments := 0
+	totalShares := 0
+	for _, p := range posts {
+		totalLikes += p.Likes
+		totalComments += p.Comments
+		totalShares += p.Shares
+	}
+
+	avgEngagement := 0.0
+	if len(posts) > 0 {
+		avgEngagement = float64(totalLikes+totalComments+totalShares) / float64(len(posts))
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"ok":              true,
+		"total_posts":     len(posts),
+		"total_likes":     totalLikes,
+		"total_comments":  totalComments,
+		"total_shares":    totalShares,
+		"avg_engagement":  avgEngagement,
+		"synced_at":       lastSynced,
+	})
+}
+
+// --- Batch queue handlers ---
+
+func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Platform string              `json:"platform"`
+		Type     string              `json:"type"`
+		Items    []map[string]string `json:"items"`
+		MinDelay int                 `json:"min_delay_seconds"`
+		MaxDelay int                 `json:"max_delay_seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.Platform == "" || body.Type == "" || len(body.Items) == 0 {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "platform, type, and items are required"})
+		return
+	}
+
+	batchID := s.batchQueue.Submit(body.Platform, batch.JobType(body.Type), body.Items, body.MinDelay, body.MaxDelay)
+	writeJSON(w, map[string]interface{}{
+		"ok":       true,
+		"batch_id": batchID,
+		"total":    len(body.Items),
+		"message":  fmt.Sprintf("Batch submitted: %d %s jobs queued with %d-%ds delay between each", len(body.Items), body.Type, body.MinDelay, body.MaxDelay),
+	})
+}
+
+func (s *Server) handleBatchStatus(w http.ResponseWriter, r *http.Request) {
+	batchID := r.URL.Query().Get("batch_id")
+	if batchID == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "batch_id parameter required"})
+		return
+	}
+	b := s.batchQueue.GetBatch(batchID)
+	if b == nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "batch not found"})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "batch": b})
+}
+
+func (s *Server) handleBatchList(w http.ResponseWriter, r *http.Request) {
+	platform := r.URL.Query().Get("platform")
+	batches := s.batchQueue.ListBatches(platform)
+	writeJSON(w, map[string]interface{}{"ok": true, "batches": batches, "total": len(batches)})
+}
+
+func (s *Server) handleBatchCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		BatchID string `json:"batch_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.BatchID == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "batch_id required"})
+		return
+	}
+	if s.batchQueue.CancelBatch(body.BatchID) {
+		writeJSON(w, map[string]interface{}{"ok": true, "message": "Batch cancelled"})
+	} else {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "batch not found or already finished"})
+	}
 }
 
 // tlsPort returns the TLS port from the listener.

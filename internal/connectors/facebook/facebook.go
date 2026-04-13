@@ -44,9 +44,10 @@ type Connector struct {
 	store   *store.Store
 	logger  *log.Logger
 
-	loggedIn bool
-	userName string
-	pageInfo *PageInfo
+	loggedIn   bool
+	userName   string
+	profilePic string
+	pageInfo   *PageInfo
 
 	// Messenger API (Graph API based)
 	Messenger *MessengerAPI
@@ -86,6 +87,13 @@ func (c *Connector) UserName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.userName
+}
+
+// ProfilePic returns the logged-in user's profile picture URL.
+func (c *Connector) ProfilePic() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.profilePic
 }
 
 // PageName returns the connected page name if any.
@@ -198,10 +206,12 @@ func (c *Connector) Login(ctx context.Context) error {
 	}
 
 	userName := c.extractUserName(page)
+	profilePic := c.extractProfilePic(page)
 
 	c.mu.Lock()
 	c.loggedIn = true
 	c.userName = userName
+	c.profilePic = profilePic
 	c.mu.Unlock()
 
 	c.logger.Printf("[facebook] Login successful as %s", userName)
@@ -210,6 +220,7 @@ func (c *Connector) Login(ctx context.Context) error {
 		Channel:    platformName,
 		JID:        "fb:" + cred.Email,
 		PushName:   userName,
+		ProfilePic: profilePic,
 		Status:     "connected",
 		LastSeenAt: time.Now(),
 	})
@@ -283,6 +294,32 @@ func (c *Connector) extractUserName(page *rod.Page) string {
 		}
 	}
 	return "Facebook User"
+}
+
+// extractProfilePic tries to get the profile picture URL from the page.
+func (c *Connector) extractProfilePic(page *rod.Page) string {
+	selectors := []string{
+		`[aria-label="Your profile"] image`,
+		`[aria-label="Your profile"] img`,
+		`a[href*="/me/"] img`,
+		`svg[aria-label="Your profile"] image`,
+	}
+	for _, sel := range selectors {
+		el, err := page.Timeout(5 * time.Second).Element(sel)
+		if err == nil {
+			// Try xlink:href first (for SVG image elements)
+			href, err := el.Attribute("xlink:href")
+			if err == nil && href != nil && *href != "" {
+				return *href
+			}
+			// Then try src (for img elements)
+			src, err := el.Attribute("src")
+			if err == nil && src != nil && *src != "" {
+				return *src
+			}
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------
@@ -703,5 +740,6 @@ func (c *Connector) Disconnect() {
 	defer c.mu.Unlock()
 	c.loggedIn = false
 	c.userName = ""
+	c.profilePic = ""
 	c.pageInfo = nil
 }
