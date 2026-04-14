@@ -94,8 +94,9 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/claude/uninstall", s.handleClaudeUninstall)
 
 	// API — Facebook (browser automation for posting)
-	mux.HandleFunc("/api/facebook/credentials", s.handleFBCredentials)
 	mux.HandleFunc("/api/facebook/login", s.handleFBLogin)
+	mux.HandleFunc("/api/facebook/login/status", s.handleFBLoginStatus)
+	mux.HandleFunc("/api/facebook/login/confirm", s.handleFBLoginConfirm)
 	mux.HandleFunc("/api/facebook/disconnect", s.handleFBDisconnect)
 	mux.HandleFunc("/api/facebook/status", s.handleFBStatus)
 	mux.HandleFunc("/api/facebook/post", s.handleFBCreatePost)
@@ -365,64 +366,45 @@ func (s *Server) handleWAQR(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleFBCredentials saves or retrieves Facebook credentials.
-func (s *Server) handleFBCredentials(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	if r.Method == http.MethodGet {
-		cred, err := s.fb.GetCredentials(ctx)
-		if err != nil {
-			writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
-			return
-		}
-		if cred == nil {
-			writeJSON(w, map[string]interface{}{"ok": true, "saved": false})
-			return
-		}
-		// Don't return the actual password
-		writeJSON(w, map[string]interface{}{
-			"ok":    true,
-			"saved": true,
-			"email": cred.Email,
-		})
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var body struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
-		return
-	}
-	if body.Email == "" || body.Password == "" {
-		writeJSON(w, map[string]interface{}{"ok": false, "error": "email and password required"})
-		return
-	}
-
-	if err := s.fb.SaveCredentials(ctx, body.Email, body.Password, nil); err != nil {
-		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
-		return
-	}
-	writeJSON(w, map[string]interface{}{"ok": true})
-}
-
-// handleFBLogin triggers a Facebook login.
+// handleFBLogin opens a visible browser for the user to log in to Facebook.
 func (s *Server) handleFBLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := s.fb.Login(r.Context()); err != nil {
+	if err := s.fb.OpenLoginBrowser(r.Context()); err != nil {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"ok": true, "user_name": s.fb.UserName()})
+	writeJSON(w, map[string]interface{}{"ok": true, "message": "Browser opened — please log in to Facebook"})
+}
+
+// handleFBLoginStatus returns the current login flow status.
+func (s *Server) handleFBLoginStatus(w http.ResponseWriter, r *http.Request) {
+	loginStatus := s.fb.LoginState()
+	cs := s.fb.Status()
+	writeJSON(w, map[string]interface{}{
+		"ok":          true,
+		"state":       loginStatus.State,
+		"message":     loginStatus.Message,
+		"connected":   cs.Connected,
+		"user_name":   cs.UserName,
+		"profile_pic": cs.ProfilePic,
+	})
+}
+
+// handleFBLoginConfirm is called when the user clicks "I have logged in".
+// This is synchronous — it verifies login and returns the result.
+func (s *Server) handleFBLoginConfirm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	ok, message := s.fb.ConfirmLogin(r.Context())
+	writeJSON(w, map[string]interface{}{
+		"ok":      ok,
+		"message": message,
+	})
 }
 
 // handleFBDisconnect disconnects Facebook.
@@ -437,11 +419,12 @@ func (s *Server) handleFBDisconnect(w http.ResponseWriter, r *http.Request) {
 
 // handleFBStatus returns Facebook connection status.
 func (s *Server) handleFBStatus(w http.ResponseWriter, r *http.Request) {
+	cs := s.fb.Status()
 	writeJSON(w, map[string]interface{}{
-		"connected":   s.fb.IsConnected(),
-		"user_name":   s.fb.UserName(),
-		"profile_pic": s.fb.ProfilePic(),
-		"page_name":   s.fb.PageName(),
+		"connected":   cs.Connected,
+		"user_name":   cs.UserName,
+		"profile_pic": cs.ProfilePic,
+		"page_name":   cs.PageName,
 	})
 }
 
@@ -928,11 +911,15 @@ func (s *Server) handleFBCreatePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": "content required"})
 		return
 	}
-	if err := s.fb.CreatePost(r.Context(), body.Content, body.PageURL); err != nil {
+	log.Printf("[api] handleFBCreatePost: starting browser automation (ctx alive: %v)", r.Context().Err() == nil)
+	err := s.fb.CreatePost(r.Context(), body.Content, body.PageURL)
+	log.Printf("[api] handleFBCreatePost: CreatePost returned (err=%v, ctx alive: %v)", err, r.Context().Err() == nil)
+	if err != nil {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true})
+	log.Printf("[api] handleFBCreatePost: response written ok=true")
 }
 
 // handleFBHealthCheck runs the Facebook health check.
