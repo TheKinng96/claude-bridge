@@ -988,18 +988,21 @@ func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	msgEndpoint := fmt.Sprintf("/mcp/message?sessionId=%s", sessionID)
 	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", msgEndpoint)
 	flusher.Flush()
+	log.Printf("[mcp-sse] Session %s endpoint sent: %s", sessionID, msgEndpoint)
 
 	// Stream events until client disconnects.
 	ctx := r.Context()
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[mcp-sse] Session %s disconnected", sessionID)
+			log.Printf("[mcp-sse] Session %s SSE connection closed (ctx: %v)", sessionID, ctx.Err())
 			h.sessions.Delete(sessionID)
 			return
 		case data := <-sess.events:
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+			log.Printf("[mcp-sse] Session %s sending event (%d bytes)", sessionID, len(data))
+			n, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 			flusher.Flush()
+			log.Printf("[mcp-sse] Session %s event flushed (wrote %d bytes, err: %v)", sessionID, n, err)
 		}
 	}
 }
@@ -1034,22 +1037,35 @@ func (h *SSEHandler) HandleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[mcp-sse] Session %s method: %s", sessionID, req.Method)
+	log.Printf("[mcp-sse] Session %s method: %s id: %s", sessionID, req.Method, string(req.ID))
 
 	// Return 202 immediately — MCP over SSE requires the POST to return right away.
 	// The actual JSON-RPC response is delivered asynchronously on the SSE stream.
-	// Browser-automation tools can take 60-90s; blocking here caused Claude Desktop
-	// to time out on the POST and never receive the result.
 	w.WriteHeader(http.StatusAccepted)
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	log.Printf("[mcp-sse] Session %s 202 sent for %s", sessionID, req.Method)
 
 	go func() {
+		log.Printf("[mcp-sse] Session %s dispatching %s", sessionID, req.Method)
 		resp := handleRequest(&req, sess.exec)
-		if resp != nil {
-			data, _ := json.Marshal(resp)
-			sess.events <- data
+		if resp == nil {
+			log.Printf("[mcp-sse] Session %s %s returned nil (notification, no response sent)", sessionID, req.Method)
+			return
+		}
+		data, _ := json.Marshal(resp)
+		log.Printf("[mcp-sse] Session %s %s result ready (%d bytes), sending to SSE channel", sessionID, req.Method, len(data))
+		// Check if the session is still alive before sending
+		if _, alive := h.sessions.Load(sessionID); !alive {
+			log.Printf("[mcp-sse] Session %s already closed, result dropped for %s", sessionID, req.Method)
+			return
+		}
+		select {
+		case sess.events <- data:
+			log.Printf("[mcp-sse] Session %s result queued for %s", sessionID, req.Method)
+		default:
+			log.Printf("[mcp-sse] Session %s events channel full, result dropped for %s", sessionID, req.Method)
 		}
 	}()
 }
