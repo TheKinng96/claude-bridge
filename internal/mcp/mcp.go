@@ -160,7 +160,7 @@ func getTools() []tool {
 		},
 		{
 			Name:        "create_facebook_post",
-			Description: "Create a text post on Facebook. Optionally specify a page URL to post to a specific Facebook Page instead of the user's timeline.",
+			Description: "Create a text post on Facebook. Posts are queued and published asynchronously via the background batch processor (returns in ~1 second). Use get_batch_status with the returned batch_id to confirm it posted. Optionally specify a page URL to post to a specific Facebook Page instead of the user's timeline.",
 			InputSchema: inputSchema{
 				Type: "object",
 				Properties: map[string]interface{}{
@@ -550,8 +550,21 @@ func (e *toolExecutor) createFBPost(args json.RawMessage) callToolResult {
 		return errorResult("'content' is required")
 	}
 
-	payload, _ := json.Marshal(params)
-	resp, err := e.browserClient.Post(e.baseURL+"/api/facebook/post", "application/json", bytes.NewReader(payload))
+	// Submit as a single-item batch so this call returns in ~1 second.
+	// Browser automation takes 60-90s which races with Claude Desktop's
+	// subprocess reconnect cycle — submitting async avoids that entirely.
+	item := map[string]string{"content": params.Content}
+	if params.PageURL != "" {
+		item["page_url"] = params.PageURL
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"platform":          "facebook",
+		"type":              "create_post",
+		"items":             []map[string]string{item},
+		"min_delay_seconds": 1,
+		"max_delay_seconds": 2,
+	})
+	resp, err := e.client.Post(e.baseURL+"/api/batch/submit", "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
@@ -562,10 +575,11 @@ func (e *toolExecutor) createFBPost(args json.RawMessage) callToolResult {
 	json.Unmarshal(body, &result)
 
 	if ok, _ := result["ok"].(bool); ok {
-		return callToolResult{Content: []contentItem{{Type: "text", Text: "Facebook post created successfully."}}}
+		batchID, _ := result["batch_id"].(string)
+		return callToolResult{Content: []contentItem{{Type: "text", Text: fmt.Sprintf("Facebook post queued successfully (batch ID: %s). It will go live within a few seconds. Use get_batch_status with this ID to confirm it posted.", batchID)}}}
 	}
 	errMsg, _ := result["error"].(string)
-	return errorResult(fmt.Sprintf("Failed to create post: %s", errMsg))
+	return errorResult(fmt.Sprintf("Failed to queue post: %s", errMsg))
 }
 
 func (e *toolExecutor) readFBMessages(args json.RawMessage) callToolResult {

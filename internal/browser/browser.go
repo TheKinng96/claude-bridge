@@ -4,6 +4,7 @@
 package browser
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -178,14 +179,27 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("create profile dir: %w", err)
 	}
 
-	// Find or download Chrome/Chromium.
-	l := launcher.New().
+	// Prefer the user's real Chrome/Edge to avoid bot fingerprinting.
+	// launcher.LookPath() finds Chrome, Edge, or Chromium on the system.
+	chromePath, hasSystem := launcher.LookPath()
+	l := launcher.New()
+	if hasSystem {
+		l = l.Bin(chromePath)
+		e.logger.Printf("Using system browser: %s", chromePath)
+	} else {
+		e.logger.Printf("No system Chrome found — using bundled Chromium")
+	}
+
+	l = l.
 		UserDataDir(profileDir).
 		Headless(e.headless).
 		Set("disable-gpu").
 		Set("no-sandbox").
 		Set("disable-dev-shm-usage").
-		Set("disable-blink-features", "AutomationControlled")
+		Set("disable-blink-features", "AutomationControlled").
+		Set("disable-infobars").
+		Set("excludeSwitches", "enable-automation").
+		Set("useAutomationExtension", "false")
 
 	controlURL, err := l.Launch()
 	if err != nil {
@@ -222,33 +236,59 @@ func (e *Engine) applyStealth(b *rod.Browser) error {
 
 // applyPageStealth injects stealth JS into a page to avoid bot detection.
 func (e *Engine) applyPageStealth(page *rod.Page) error {
-	stealth := `
+	stealth := `() => {
 		// Remove webdriver flag
-		Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+		Object.defineProperty(navigator, 'webdriver', {get: () => false});
+		try { delete navigator.__proto__.webdriver; } catch(e) {}
 
-		// Mock plugins
+		// Mock plugins — return realistic plugin array
 		Object.defineProperty(navigator, 'plugins', {
-			get: () => [1, 2, 3, 4, 5],
+			get: () => {
+				var plugins = [
+					{name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1},
+					{name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1},
+					{name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 1}
+				];
+				plugins.refresh = function() {};
+				return plugins;
+			}
 		});
 
 		// Mock languages
 		Object.defineProperty(navigator, 'languages', {
-			get: () => ['en-US', 'en'],
+			get: () => ['en-US', 'en']
 		});
 
-		// Remove automation-related Chrome properties
-		if (window.chrome) {
-			window.chrome.runtime = {};
-		}
+		// Fix chrome runtime — must look like real Chrome
+		if (!window.chrome) window.chrome = {};
+		window.chrome.runtime = window.chrome.runtime || {
+			connect: function() {},
+			sendMessage: function() {},
+			onMessage: {addListener: function() {}, removeListener: function() {}}
+		};
+		window.chrome.loadTimes = window.chrome.loadTimes || function() { return {}; };
+		window.chrome.csi = window.chrome.csi || function() { return {}; };
 
 		// Mock permissions
-		const originalQuery = window.navigator.permissions.query;
-		window.navigator.permissions.query = (parameters) => (
-			parameters.name === 'notifications' ?
-				Promise.resolve({ state: Notification.permission }) :
-				originalQuery(parameters)
-		);
-	`
+		if (window.navigator && window.navigator.permissions && window.navigator.permissions.query) {
+			var originalQuery = window.navigator.permissions.query.bind(window.navigator.permissions);
+			window.navigator.permissions.query = function(parameters) {
+				return parameters.name === 'notifications' ?
+					Promise.resolve({ state: Notification.permission }) :
+					originalQuery(parameters);
+			};
+		}
+
+		// Hide WebGL fingerprinting
+		try {
+			var getParam = WebGLRenderingContext.prototype.getParameter;
+			WebGLRenderingContext.prototype.getParameter = function(parameter) {
+				if (parameter === 37445) return 'Intel Inc.';
+				if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+				return getParam.call(this, parameter);
+			};
+		} catch(e) {}
+	}`
 
 	_, err := page.Eval(stealth)
 	return err
@@ -415,6 +455,71 @@ func TypeLikeHuman(el *rod.Element, text string) error {
 	delay := time.Duration(len(text)*30+200) * time.Millisecond
 	time.Sleep(delay)
 	return nil
+}
+
+// PersistSession saves a platform's cookies to disk so they survive app restarts.
+func (e *Engine) PersistSession(platform string) error {
+	e.mu.Lock()
+	sess, ok := e.sessions[platform]
+	e.mu.Unlock()
+
+	if !ok || len(sess.Cookies) == 0 {
+		return fmt.Errorf("no session to persist for %s", platform)
+	}
+
+	cookieFile := filepath.Join(e.dataDir, platform+"_cookies.json")
+	data, err := json.Marshal(sess.Cookies)
+	if err != nil {
+		return fmt.Errorf("marshal cookies: %w", err)
+	}
+
+	if err := os.WriteFile(cookieFile, data, 0600); err != nil {
+		return fmt.Errorf("write cookies file: %w", err)
+	}
+
+	e.logger.Printf("Persisted %d cookies for %s to disk", len(sess.Cookies), platform)
+	return nil
+}
+
+// LoadSession loads a platform's cookies from disk into the in-memory session.
+func (e *Engine) LoadSession(platform string) error {
+	cookieFile := filepath.Join(e.dataDir, platform+"_cookies.json")
+	data, err := os.ReadFile(cookieFile)
+	if err != nil {
+		return fmt.Errorf("read cookies file: %w", err)
+	}
+
+	var cookies []*proto.NetworkCookie
+	if err := json.Unmarshal(data, &cookies); err != nil {
+		return fmt.Errorf("unmarshal cookies: %w", err)
+	}
+
+	if len(cookies) == 0 {
+		return fmt.Errorf("no cookies in file for %s", platform)
+	}
+
+	e.mu.Lock()
+	e.sessions[platform] = &Session{
+		Platform: platform,
+		Cookies:  cookies,
+		LoggedIn: true,
+		LastUsed: time.Now(),
+	}
+	e.mu.Unlock()
+
+	e.logger.Printf("Loaded %d cookies for %s from disk", len(cookies), platform)
+	return nil
+}
+
+// ClearSession removes a platform's saved cookies from both memory and disk.
+func (e *Engine) ClearSession(platform string) {
+	e.mu.Lock()
+	delete(e.sessions, platform)
+	e.mu.Unlock()
+
+	cookieFile := filepath.Join(e.dataDir, platform+"_cookies.json")
+	os.Remove(cookieFile)
+	e.logger.Printf("Cleared session for %s", platform)
 }
 
 // Stop closes the browser and cleans up.

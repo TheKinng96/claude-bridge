@@ -61,7 +61,7 @@ const facebookHTML = `<!DOCTYPE html>
 	<!-- Connection Status -->
 	<div class="card fb-section" id="connectionSection">
 		<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-			<h3>Connection</h3>
+			<h3>Facebook Account</h3>
 			<div>
 				<span class="status-badge disconnected" id="fbBadge">Not Connected</span>
 				<span class="health-status health-unknown" id="healthBadge" style="margin-left:8px;">Health: —</span>
@@ -70,31 +70,30 @@ const facebookHTML = `<!DOCTYPE html>
 
 		<div id="connectedInfo" style="display:none;">
 			<div class="status-row">
+				<img id="profilePic" src="" style="width:40px;height:40px;border-radius:50%;display:none;" />
 				<span class="name" id="userName">—</span>
-				<span class="cred-saved" id="credInfo"></span>
 			</div>
+			<div class="hint" style="margin:8px 0;">Session is active. Your login is saved as browser cookies — no password stored.</div>
 			<div class="btn-row">
-				<button class="btn btn-secondary" onclick="reconnect()">Reconnect</button>
 				<button class="btn btn-danger" onclick="disconnect()">Disconnect</button>
 				<button class="btn btn-secondary" onclick="runHealthCheck()">Run Health Check</button>
 			</div>
 		</div>
 
-		<div id="loginForm">
-			<div class="form-group">
-				<label>Email / Phone</label>
-				<input type="text" id="fbEmail" placeholder="your@email.com or phone number" autocomplete="username">
-			</div>
-			<div class="form-group">
-				<label>Password</label>
-				<div class="password-field">
-					<input type="password" id="fbPassword" placeholder="Your Facebook password" autocomplete="current-password">
-					<button class="password-toggle" onclick="togglePassword()" id="pwToggle">👁</button>
-				</div>
-				<div class="hint">Stored locally only — never leaves your machine. Used by the browser bot to log in on your behalf.</div>
-			</div>
+		<div id="loginSection">
+			<p style="margin-bottom:12px;">Click the button below to open a browser window where you can log in to Facebook yourself.</p>
+			<div class="hint" style="margin-bottom:16px;">No email or password is stored. Only browser cookies are saved locally to keep your session alive.</div>
 			<div class="btn-row">
-				<button class="btn btn-primary" onclick="saveAndLogin()">Save & Connect</button>
+				<button class="btn btn-primary" id="loginBtn" onclick="startLogin()">Open Browser to Login</button>
+			</div>
+			<div id="loginProgress" style="display:none;margin-top:16px;">
+				<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+					<div id="loginSpinner" class="health-spinner" style="width:20px;height:20px;border-width:2px;flex-shrink:0;"></div>
+					<span id="loginMsg">Opening browser...</span>
+				</div>
+				<div class="btn-row">
+					<button class="btn btn-secondary" onclick="cancelLogin()">Cancel</button>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -113,8 +112,8 @@ const facebookHTML = `<!DOCTYPE html>
 		</div>
 	</div>
 
-	<!-- Messenger API (Graph API) -->
-	<div class="card fb-section" id="messengerSection">
+	<!-- Messenger API (Graph API) — hidden until browser login done -->
+	<div class="card fb-section" id="messengerSection" style="display:none;">
 		<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
 			<h3>Messenger (Graph API)</h3>
 			<span class="status-badge disconnected" id="messengerBadge">Not Connected</span>
@@ -201,95 +200,177 @@ const facebookHTML = `<!DOCTYPE html>
 
 <script>
 let isConnected = false;
+let loginPollInterval = null;
 
-function togglePassword() {
-	const pw = document.getElementById('fbPassword');
-	const btn = document.getElementById('pwToggle');
-	if (pw.type === 'password') {
-		pw.type = 'text';
-		btn.textContent = '🙈';
-	} else {
-		pw.type = 'password';
-		btn.textContent = '👁';
-	}
+// --- Toast notification ---
+function showToast(message, type) {
+	var existing = document.getElementById('fbToast');
+	if (existing) existing.remove();
+	var toast = document.createElement('div');
+	toast.id = 'fbToast';
+	toast.textContent = message;
+	var bg = type === 'success' ? 'var(--color-success, #1a7f37)' :
+			 type === 'error' ? 'var(--color-error, #d32f2f)' :
+			 'var(--accent, #3b82f6)';
+	toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;padding:12px 24px;border-radius:8px;color:#fff;font-weight:600;font-size:14px;background:' + bg + ';box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.3s;';
+	document.body.appendChild(toast);
+	setTimeout(function() { toast.style.opacity = '0'; setTimeout(function() { toast.remove(); }, 300); }, 4000);
 }
 
-function saveAndLogin() {
-	const email = document.getElementById('fbEmail').value.trim();
-	const password = document.getElementById('fbPassword').value;
-	if (!email || !password) { alert('Please enter both email/phone and password.'); return; }
+function startLogin() {
+	var btn = document.getElementById('loginBtn');
+	var progress = document.getElementById('loginProgress');
+	var msg = document.getElementById('loginMsg');
 
-	// First save credentials
-	fetch('/api/facebook/credentials', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ email, password })
-	})
-	.then(r => r.json())
-	.then(data => {
-		if (!data.ok) { alert('Failed to save credentials: ' + (data.error || 'unknown')); return; }
-		// Then trigger login
-		document.getElementById('fbBadge').textContent = 'Connecting...';
-		document.getElementById('fbBadge').className = 'status-badge';
-		return fetch('/api/facebook/login', { method: 'POST' });
-	})
-	.then(r => r && r.json())
-	.then(data => {
-		if (!data) return;
-		if (data.ok) {
-			updateConnected(true, data.user_name);
-		} else {
-			alert('Login failed: ' + (data.error || 'unknown'));
-			updateConnected(false);
+	// Show message immediately — don't wait for backend
+	btn.disabled = true;
+	btn.textContent = 'Opening browser...';
+	progress.style.display = 'block';
+	msg.textContent = 'A browser window is opening — log in to Facebook there. It will close automatically when done.';
+
+	// Start polling immediately so we catch the state as soon as it changes
+	loginPollInterval = setInterval(pollLoginStatus, 2000);
+	setTimeout(function() {
+		if (loginPollInterval) {
+			clearInterval(loginPollInterval);
+			loginPollInterval = null;
+			resetLoginUI();
+			showToast('Login timed out — please try again', 'error');
 		}
-	})
-	.catch(err => { alert('Error: ' + err.message); updateConnected(false); });
-}
+	}, 300000);
 
-function reconnect() {
-	document.getElementById('fbBadge').textContent = 'Connecting...';
+	// Fire the backend request (non-blocking — UI is already updated)
 	fetch('/api/facebook/login', { method: 'POST' })
-	.then(r => r.json())
-	.then(data => {
-		if (data.ok) {
-			updateConnected(true, data.user_name);
-		} else {
-			alert('Reconnect failed: ' + (data.error || 'unknown'));
+	.then(function(r) { return r.json(); })
+	.then(function(data) {
+		if (!data.ok) {
+			clearInterval(loginPollInterval);
+			loginPollInterval = null;
+			resetLoginUI();
+			showToast('Failed to open browser: ' + (data.error || 'unknown'), 'error');
 		}
 	})
-	.catch(err => alert('Error: ' + err.message));
+	.catch(function(err) {
+		clearInterval(loginPollInterval);
+		loginPollInterval = null;
+		resetLoginUI();
+		showToast('Error: ' + err.message, 'error');
+	});
+}
+
+function pollLoginStatus() {
+	fetch('/api/facebook/login/status')
+	.then(function(r) { return r.json(); })
+	.then(function(data) {
+		var msg = document.getElementById('loginMsg');
+
+		if (data.state === 'logged_in') {
+			clearInterval(loginPollInterval);
+			loginPollInterval = null;
+			document.getElementById('loginProgress').style.display = 'none';
+			resetLoginUI();
+			updateConnected(true, data.user_name, data.profile_pic);
+			if (!data.user_name || data.user_name === 'Facebook User' || data.user_name === '—') {
+				showToast('Login verified! Loading your profile...', 'success');
+				startProfilePoll();
+			} else {
+				showToast('Welcome, ' + data.user_name + '!', 'success');
+			}
+		} else if (data.state === 'error') {
+			clearInterval(loginPollInterval);
+			loginPollInterval = null;
+			resetLoginUI();
+			showToast(data.message || 'Login failed', 'error');
+		} else if (data.state === 'waiting' || data.state === 'opening') {
+			msg.textContent = 'A browser window is opening — log in to Facebook there. It will close automatically when done.';
+		}
+	})
+	.catch(function() {}); // silently ignore poll errors
+}
+
+function startProfilePoll() {
+	var profilePoll = setInterval(function() {
+		fetch('/api/facebook/status')
+		.then(function(r) { return r.json(); })
+		.then(function(status) {
+			var hasName = status.user_name && status.user_name !== 'Facebook User' && status.user_name !== '—';
+			var hasPic = status.profile_pic && status.profile_pic.length > 10;
+			// Update UI progressively — show name as soon as available
+			if (hasName) {
+				updateConnected(true, status.user_name, status.profile_pic);
+			}
+			// Only stop polling when we have BOTH name and pic
+			if (hasName && hasPic) {
+				clearInterval(profilePoll);
+				showToast('Welcome, ' + status.user_name + '!', 'success');
+			}
+		});
+	}, 2000);
+	// Stop after 60 seconds — show whatever we have
+	setTimeout(function() {
+		clearInterval(profilePoll);
+		fetch('/api/facebook/status').then(function(r) { return r.json(); }).then(function(s) {
+			updateConnected(s.connected, s.user_name, s.profile_pic);
+		});
+	}, 60000);
+}
+
+function resetLoginUI() {
+	var btn = document.getElementById('loginBtn');
+	btn.disabled = false;
+	btn.textContent = 'Open Browser to Login';
+	document.getElementById('loginProgress').style.display = 'none';
+}
+
+function cancelLogin() {
+	if (loginPollInterval) {
+		clearInterval(loginPollInterval);
+		loginPollInterval = null;
+	}
+	resetLoginUI();
 }
 
 function disconnect() {
-	if (!confirm('Disconnect Facebook?')) return;
+	if (!confirm('Disconnect Facebook? Your saved session will be cleared.')) return;
 	fetch('/api/facebook/disconnect', { method: 'POST' })
 	.then(r => r.json())
 	.then(() => updateConnected(false));
 }
 
-function updateConnected(connected, userName) {
+function updateConnected(connected, userName, profilePic) {
 	isConnected = connected;
 	const badge = document.getElementById('fbBadge');
-	const loginForm = document.getElementById('loginForm');
+	const loginSection = document.getElementById('loginSection');
 	const connectedInfo = document.getElementById('connectedInfo');
 	const actionsSection = document.getElementById('actionsSection');
-	const contactsSection = document.getElementById('contactsSection');
+	const messengerSection = document.getElementById('messengerSection');
 
 	if (connected) {
 		badge.className = 'status-badge connected';
 		badge.textContent = 'Connected';
-		loginForm.style.display = 'none';
+		loginSection.style.display = 'none';
 		connectedInfo.style.display = 'block';
 		actionsSection.style.display = 'block';
-		contactsSection.style.display = 'block';
+		messengerSection.style.display = 'block';
 		if (userName) document.getElementById('userName').textContent = userName;
+		var pic = document.getElementById('profilePic');
+		if (profilePic && profilePic.length > 20) {
+			pic.setAttribute('src', profilePic);
+			pic.style.cssText = 'width:40px;height:40px;border-radius:50%;display:inline-block;';
+			console.log('[fb] Profile pic set, length=' + profilePic.length + ', starts=' + profilePic.substring(0, 30));
+		} else {
+			pic.style.display = 'none';
+			console.log('[fb] No profile pic, value=' + (profilePic ? profilePic.substring(0, 30) : 'empty'));
+		}
 	} else {
 		badge.className = 'status-badge disconnected';
 		badge.textContent = 'Not Connected';
-		loginForm.style.display = 'block';
+		loginSection.style.display = 'block';
 		connectedInfo.style.display = 'none';
 		actionsSection.style.display = 'none';
-		contactsSection.style.display = 'none';
+		messengerSection.style.display = 'none';
+		document.getElementById('profilePic').style.display = 'none';
+		document.getElementById('userName').textContent = '—';
 	}
 }
 
@@ -531,17 +612,14 @@ var browserPollInterval = setInterval(function() {
 
 // Initial load
 fetch('/api/facebook/status')
-.then(r => r.json())
-.then(data => {
-	updateConnected(data.connected, data.user_name);
-});
-
-fetch('/api/facebook/credentials')
-.then(r => r.json())
-.then(data => {
-	if (data.saved) {
-		document.getElementById('fbEmail').value = data.email;
-		document.getElementById('credInfo').textContent = '(credentials saved)';
+.then(function(r) { return r.json(); })
+.then(function(data) {
+	updateConnected(data.connected, data.user_name, data.profile_pic);
+	// If connected but name or pic is missing, poll for profile data
+	var badName = !data.user_name || data.user_name === 'Facebook User' || data.user_name === '—';
+	var noPic = !data.profile_pic || data.profile_pic.length < 20;
+	if (data.connected && (badName || noPic)) {
+		startProfilePoll();
 	}
 });
 

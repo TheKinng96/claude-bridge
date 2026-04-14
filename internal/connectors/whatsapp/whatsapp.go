@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite" // pure-Go SQLite — no CGO needed
+	_ "claude-bridge/internal/store" // registers "sqlite-fk" driver
 	qrcode "github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -93,10 +93,10 @@ func (m *Manager) initContainer() error {
 	}
 
 	dbPath := filepath.Join(m.dataDir, "whatsapp.db")
-	dbURI := fmt.Sprintf("file:%s?_foreign_keys=on", dbPath)
+	dbURI := fmt.Sprintf("file:%s", dbPath)
 	logger := waLog.Stdout("whatsmeow", "INFO", true)
 
-	container, err := sqlstore.New(context.Background(), "sqlite", dbURI, logger)
+	container, err := sqlstore.New(context.Background(), "sqlite3", dbURI, logger)
 	if err != nil {
 		return fmt.Errorf("init sqlstore: %w", err)
 	}
@@ -460,6 +460,8 @@ func (m *Manager) GetAccounts() []store.Account {
 	}
 
 	// Overlay live connection status.
+	// If a client exists in memory, use its live status.
+	// If not in memory, mark as disconnected (DB may have stale "connected" status).
 	m.mu.RLock()
 	for i := range accounts {
 		if ac, ok := m.clients[accounts[i].JID]; ok {
@@ -476,6 +478,9 @@ func (m *Manager) GetAccounts() []store.Account {
 				accounts[i].PushName = ac.pushName
 			}
 			ac.mu.RUnlock()
+		} else {
+			// No live client — account exists in DB but not running
+			accounts[i].Status = "disconnected"
 		}
 	}
 	m.mu.RUnlock()

@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite" // pure-Go SQLite — no CGO needed
+	// sqlite-fk driver is registered in sqlitedriver.go — wraps modernc.org/sqlite
+	// with automatic PRAGMA foreign_keys = ON on every connection.
 )
 
 // Account represents a connected messaging account (WhatsApp, FB, etc).
@@ -116,7 +117,7 @@ func New(dataDir string) (*Store, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, "app.db")
-	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_foreign_keys=on&_journal_mode=WAL", dbPath))
+	db, err := sql.Open("sqlite-fk", fmt.Sprintf("file:%s", dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
