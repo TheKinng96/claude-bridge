@@ -1077,25 +1077,38 @@ func (h *SSEHandler) HandleMessage(w http.ResponseWriter, r *http.Request) {
 // StdioServer reads JSON-RPC from stdin and writes to stdout.
 // All logging goes to stderr to keep stdout clean for JSON-RPC.
 type StdioServer struct {
-	exec   *toolExecutor
-	reader *bufio.Reader
-	writer *bufio.Writer
-	logger *log.Logger
+	exec    *toolExecutor
+	reader  *bufio.Reader
+	writeCh chan []byte // serialises concurrent writes to stdout
+	logger  *log.Logger
 }
 
 // NewStdioServer creates a stdio MCP server proxying to the given Claude Bridge URL.
 func NewStdioServer(baseURL string) *StdioServer {
 	return &StdioServer{
-		exec:   newToolExecutor(baseURL),
-		reader: bufio.NewReader(os.Stdin),
-		writer: bufio.NewWriter(os.Stdout),
-		logger: log.New(os.Stderr, "[mcp-stdio] ", log.LstdFlags),
+		exec:    newToolExecutor(baseURL),
+		reader:  bufio.NewReader(os.Stdin),
+		writeCh: make(chan []byte, 64),
+		logger:  log.New(os.Stderr, "[mcp-stdio] ", log.LstdFlags),
 	}
 }
 
 // Run starts the stdio loop. Blocks until EOF.
 func (s *StdioServer) Run() error {
 	s.logger.Printf("MCP stdio server started, proxying to %s", s.exec.baseURL)
+
+	// Single writer goroutine — keeps stdout writes serialised even when
+	// multiple tool calls complete concurrently.
+	writer := bufio.NewWriter(os.Stdout)
+	go func() {
+		for data := range s.writeCh {
+			writer.Write(data)
+			writer.Write([]byte("\n"))
+			if err := writer.Flush(); err != nil {
+				s.logger.Printf("stdout flush error: %v", err)
+			}
+		}
+	}()
 
 	for {
 		line, err := s.reader.ReadBytes('\n')
@@ -1116,27 +1129,34 @@ func (s *StdioServer) Run() error {
 		if err := json.Unmarshal(line, &req); err != nil {
 			s.logger.Printf("Parse error: %v", err)
 			resp := makeError(nil, -32700, "parse error")
-			s.writeResponse(resp)
+			s.queueResponse(resp)
 			continue
 		}
 
-		s.logger.Printf("Method: %s", req.Method)
+		s.logger.Printf("Received method: %s id: %s", req.Method, string(req.ID))
 
-		resp := handleRequest(&req, s.exec)
-		if resp != nil {
-			s.writeResponse(resp)
-			s.logger.Printf("Responded to %s", req.Method)
-		}
+		// Dispatch every request in its own goroutine so long-running tool calls
+		// (browser automation, 60-90s) don't block the read loop or starve other
+		// requests. Responses are serialised back through writeCh.
+		go func(r jsonRPCRequest) {
+			s.logger.Printf("Dispatching: %s id: %s", r.Method, string(r.ID))
+			resp := handleRequest(&r, s.exec)
+			if resp != nil {
+				s.logger.Printf("Responding to: %s id: %s", r.Method, string(r.ID))
+				s.queueResponse(resp)
+				s.logger.Printf("Queued response for: %s id: %s", r.Method, string(r.ID))
+			} else {
+				s.logger.Printf("No response for: %s (notification)", r.Method)
+			}
+		}(req)
 	}
 }
 
-func (s *StdioServer) writeResponse(resp *jsonRPCResponse) {
+func (s *StdioServer) queueResponse(resp *jsonRPCResponse) {
 	data, err := json.Marshal(resp)
 	if err != nil {
 		s.logger.Printf("Marshal error: %v", err)
 		return
 	}
-	s.writer.Write(data)
-	s.writer.Write([]byte("\n"))
-	s.writer.Flush()
+	s.writeCh <- data
 }
