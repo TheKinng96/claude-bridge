@@ -1036,13 +1036,22 @@ func (h *SSEHandler) HandleMessage(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[mcp-sse] Session %s method: %s", sessionID, req.Method)
 
-	resp := handleRequest(&req, sess.exec)
-	if resp != nil {
-		data, _ := json.Marshal(resp)
-		sess.events <- data
+	// Return 202 immediately — MCP over SSE requires the POST to return right away.
+	// The actual JSON-RPC response is delivered asynchronously on the SSE stream.
+	// Browser-automation tools can take 60-90s; blocking here caused Claude Desktop
+	// to time out on the POST and never receive the result.
+	w.WriteHeader(http.StatusAccepted)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	go func() {
+		resp := handleRequest(&req, sess.exec)
+		if resp != nil {
+			data, _ := json.Marshal(resp)
+			sess.events <- data
+		}
+	}()
 }
 
 // ===========================================================================
