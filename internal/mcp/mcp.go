@@ -393,14 +393,16 @@ func getTools() []tool {
 // ---------------------------------------------------------------------------
 
 type toolExecutor struct {
-	baseURL string
-	client  *http.Client
+	baseURL       string
+	client        *http.Client
+	browserClient *http.Client // longer timeout for browser-automation calls
 }
 
 func newToolExecutor(baseURL string) *toolExecutor {
 	return &toolExecutor{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		client:  &http.Client{Timeout: 60 * time.Second},
+		baseURL:       strings.TrimRight(baseURL, "/"),
+		client:        &http.Client{Timeout: 60 * time.Second},
+		browserClient: &http.Client{Timeout: 3 * time.Minute},
 	}
 }
 
@@ -549,7 +551,7 @@ func (e *toolExecutor) createFBPost(args json.RawMessage) callToolResult {
 	}
 
 	payload, _ := json.Marshal(params)
-	resp, err := e.client.Post(e.baseURL+"/api/facebook/post", "application/json", bytes.NewReader(payload))
+	resp, err := e.browserClient.Post(e.baseURL+"/api/facebook/post", "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
@@ -589,7 +591,11 @@ func (e *toolExecutor) readFBMessages(args json.RawMessage) callToolResult {
 	}
 	url += fmt.Sprintf("limit=%d", limit)
 
-	resp, err := e.client.Get(url)
+	hc := e.client
+	if params.Refresh {
+		hc = e.browserClient
+	}
+	resp, err := hc.Get(url)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
@@ -661,7 +667,11 @@ func (e *toolExecutor) listFBContacts(args json.RawMessage) callToolResult {
 		url += "&refresh=true"
 	}
 
-	resp, err := e.client.Get(url)
+	hc := e.client
+	if params.Refresh {
+		hc = e.browserClient
+	}
+	resp, err := hc.Get(url)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge — is the dashboard running? Error: %v", err))
 	}
