@@ -236,6 +236,7 @@ func navHTML(active string) string {
 		{"/", "Dashboard"},
 		{"/setup/whatsapp", "WhatsApp"},
 		{"/setup/facebook", "Facebook"},
+		{"/setup/knowledge", "Knowledge"},
 	}
 	nav := `<nav class="topnav"><div class="logo">Claude <span>Bridge</span></div>`
 	for _, p := range pages {

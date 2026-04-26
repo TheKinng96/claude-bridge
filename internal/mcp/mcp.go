@@ -385,6 +385,76 @@ func getTools() []tool {
 				Required: []string{"batch_id"},
 			},
 		},
+		// --- Knowledge base tools ---
+		{
+			Name:        "list_documents",
+			Description: "List ingested documents (insurance policies, promotions, templates) from the user's configured knowledge folder. Supports filters by doc_type, product, language, status. Use language='en'/'zh'/'ms' to match a contact's chat language.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"doc_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by document type: policy | promotion | template | other",
+					},
+					"product": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by product: life | medical | motor | travel | business",
+					},
+					"language": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by language: en | zh | ms | mixed",
+					},
+					"status": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by status: pending | extracting | classifying | ready | failed (usually 'ready')",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of documents (default 50)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "search_documents",
+			Description: "Full-text search over ingested documents using SQLite FTS5. Returns ranked hits with highlighted snippets. Use this when you need to find policy details, promo language, or template wording that matches a customer's question or profile.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "FTS5 query string (e.g. 'critical illness' or 'motor comprehensive')",
+					},
+					"language": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional language filter: en | zh | ms",
+					},
+					"doc_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional doc_type filter",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum hits (default 20)",
+					},
+				},
+				Required: []string{"query"},
+			},
+		},
+		{
+			Name:        "get_document",
+			Description: "Fetch the full contents of a single document by id, including raw_text, key_terms, and audience. Use after search_documents to read the full policy or promo copy.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"id": map[string]interface{}{
+						"type":        "integer",
+						"description": "Document id, as returned by list_documents or search_documents",
+					},
+				},
+				Required: []string{"id"},
+			},
+		},
 	}
 }
 
@@ -445,6 +515,13 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 		return e.getBatchStatus(args)
 	case "cancel_batch":
 		return e.cancelBatch(args)
+	// Knowledge
+	case "list_documents":
+		return e.listDocuments(args)
+	case "search_documents":
+		return e.searchDocuments(args)
+	case "get_document":
+		return e.getDocument(args)
 	default:
 		return errorResult(fmt.Sprintf("Unknown tool: %s", name))
 	}
@@ -865,6 +942,82 @@ func (e *toolExecutor) cancelBatch(args json.RawMessage) callToolResult {
 	}
 	payload, _ := json.Marshal(params)
 	resp, err := e.client.Post(e.baseURL+"/api/batch/cancel", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+// --- Knowledge tool executors ---
+
+func (e *toolExecutor) listDocuments(args json.RawMessage) callToolResult {
+	var params struct {
+		DocType  string `json:"doc_type"`
+		Product  string `json:"product"`
+		Language string `json:"language"`
+		Status   string `json:"status"`
+		Limit    int    `json:"limit"`
+	}
+	_ = json.Unmarshal(args, &params)
+	url := e.baseURL + "/api/documents"
+	q := []string{}
+	if params.DocType != "" {
+		q = append(q, "doc_type="+params.DocType)
+	}
+	if params.Product != "" {
+		q = append(q, "product="+params.Product)
+	}
+	if params.Language != "" {
+		q = append(q, "language="+params.Language)
+	}
+	if params.Status != "" {
+		q = append(q, "status="+params.Status)
+	}
+	if params.Limit > 0 {
+		q = append(q, fmt.Sprintf("limit=%d", params.Limit))
+	}
+	if len(q) > 0 {
+		url += "?" + strings.Join(q, "&")
+	}
+	resp, err := e.client.Get(url)
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+func (e *toolExecutor) searchDocuments(args json.RawMessage) callToolResult {
+	var params struct {
+		Query    string `json:"query"`
+		Language string `json:"language"`
+		DocType  string `json:"doc_type"`
+		Limit    int    `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.Query == "" {
+		return errorResult("'query' is required")
+	}
+	payload, _ := json.Marshal(params)
+	resp, err := e.client.Post(e.baseURL+"/api/documents/search", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+func (e *toolExecutor) getDocument(args json.RawMessage) callToolResult {
+	var params struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.ID == 0 {
+		return errorResult("'id' is required")
+	}
+	resp, err := e.client.Get(fmt.Sprintf("%s/api/documents/%d", e.baseURL, params.ID))
 	if err != nil {
 		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
 	}

@@ -37,6 +37,7 @@ const facebookHTML = `<!DOCTYPE html>
 	<a href="/">Dashboard</a>
 	<a href="/setup/whatsapp">WhatsApp</a>
 	<a href="/setup/facebook" class="active">Facebook</a>
+	<a href="/setup/knowledge">Knowledge</a>
 	<div class="spacer"></div>
 	<button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark theme"></button>
 </nav>

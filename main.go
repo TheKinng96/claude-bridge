@@ -11,8 +11,10 @@ import (
 	"syscall"
 
 	"claude-bridge/internal/browser"
+	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/whatsapp"
+	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/server"
 	"claude-bridge/internal/store"
@@ -76,7 +78,21 @@ func main() {
 	// Boot loads saved Facebook Messenger OAuth config and starts polling if connected.
 	fb.Boot(context.Background())
 
+	// Boot the knowledge subsystem: load config + API key, start pipeline + watcher.
+	knowCtx := context.Background()
+	knowCfg, _ := knowledge.LoadConfig(knowCtx, appStore)
+	knowClient := claude.New("", knowCfg.Model)
+	knowPipeline := knowledge.NewPipeline(appStore, knowClient)
+	knowPipeline.Start()
+	knowWatcher := knowledge.NewWatcher(appStore, knowPipeline)
+	if knowCfg.FolderPath != "" {
+		if err := knowWatcher.SetFolder(knowCfg.FolderPath); err != nil {
+			log.Printf("WARNING: knowledge watcher failed to start: %v", err)
+		}
+	}
+
 	srv := server.New(wa, fb, appStore, browserEngine, *port)
+	srv.SetKnowledge(knowClient, knowPipeline, knowWatcher)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
@@ -102,6 +118,8 @@ func main() {
 		log.Println("Shutting down...")
 		wa.DisconnectAll()
 		browserEngine.Stop()
+		knowWatcher.Stop()
+		knowPipeline.Stop()
 		srv.Stop()
 	} else {
 		// System tray mode: blocks until user quits via tray.
@@ -109,6 +127,8 @@ func main() {
 			log.Println("Shutting down via tray...")
 			wa.DisconnectAll()
 			browserEngine.Stop()
+			knowWatcher.Stop()
+			knowPipeline.Stop()
 			srv.Stop()
 		})
 	}

@@ -49,6 +49,7 @@ const whatsappHTML = `<!DOCTYPE html>
 	<a href="/">Dashboard</a>
 	<a href="/setup/whatsapp" class="active">WhatsApp</a>
 	<a href="/setup/facebook">Facebook</a>
+	<a href="/setup/knowledge">Knowledge</a>
 	<div class="spacer"></div>
 	<button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark theme"></button>
 </nav>

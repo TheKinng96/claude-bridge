@@ -105,6 +105,35 @@ type HealthCheckResult struct {
 	CheckedAt time.Time `json:"checked_at"`
 }
 
+// Document represents an ingested knowledge file.
+type Document struct {
+	ID          int64     `json:"id"`
+	Path        string    `json:"path"`
+	Filename    string    `json:"filename"`
+	FileHash    string    `json:"file_hash"`
+	SizeBytes   int64     `json:"size_bytes"`
+	MimeType    string    `json:"mime_type"`
+	DocType     string    `json:"doc_type,omitempty"`
+	Product     string    `json:"product,omitempty"`
+	Language    string    `json:"language,omitempty"`
+	Audience    string    `json:"audience,omitempty"`  // JSON array
+	Summary     string    `json:"summary,omitempty"`
+	KeyTerms    string    `json:"key_terms,omitempty"` // JSON array
+	RawText     string    `json:"raw_text,omitempty"`
+	Status      string    `json:"status"` // pending|extracting|classifying|ready|failed
+	Error       string    `json:"error,omitempty"`
+	IngestedAt  time.Time `json:"ingested_at,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// DocumentSearchHit is a single ranked search hit.
+type DocumentSearchHit struct {
+	Document Document `json:"document"`
+	Snippet  string   `json:"snippet"`
+	Rank     float64  `json:"rank"`
+}
+
 // Store is the app-level SQLite database.
 type Store struct {
 	db *sql.DB
@@ -234,6 +263,53 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_cached_posts_platform ON cached_posts(platform, posted_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_cached_comments_post ON cached_comments(platform, post_id, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_health_checks_platform ON health_checks(platform, checked_at DESC)`,
+
+		// Knowledge ingestion: documents table + FTS5 virtual table + sync triggers.
+		`CREATE TABLE IF NOT EXISTS documents (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			path         TEXT NOT NULL UNIQUE,
+			filename     TEXT NOT NULL,
+			file_hash    TEXT NOT NULL,
+			size_bytes   INTEGER NOT NULL,
+			mime_type    TEXT NOT NULL,
+			doc_type     TEXT NOT NULL DEFAULT '',
+			product      TEXT NOT NULL DEFAULT '',
+			language     TEXT NOT NULL DEFAULT '',
+			audience     TEXT NOT NULL DEFAULT '[]',
+			summary      TEXT NOT NULL DEFAULT '',
+			key_terms    TEXT NOT NULL DEFAULT '[]',
+			raw_text     TEXT NOT NULL DEFAULT '',
+			status       TEXT NOT NULL DEFAULT 'pending',
+			error        TEXT NOT NULL DEFAULT '',
+			ingested_at  DATETIME,
+			updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_status   ON documents(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_type     ON documents(doc_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_language ON documents(language)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_hash     ON documents(file_hash)`,
+
+		`CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+			filename, doc_type, product, language, summary, key_terms, raw_text,
+			content='documents', content_rowid='id',
+			tokenize='unicode61'
+		)`,
+
+		`CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+			INSERT INTO documents_fts(rowid, filename, doc_type, product, language, summary, key_terms, raw_text)
+			VALUES (new.id, new.filename, new.doc_type, new.product, new.language, new.summary, new.key_terms, new.raw_text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+			INSERT INTO documents_fts(documents_fts, rowid, filename, doc_type, product, language, summary, key_terms, raw_text)
+			VALUES ('delete', old.id, old.filename, old.doc_type, old.product, old.language, old.summary, old.key_terms, old.raw_text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+			INSERT INTO documents_fts(documents_fts, rowid, filename, doc_type, product, language, summary, key_terms, raw_text)
+			VALUES ('delete', old.id, old.filename, old.doc_type, old.product, old.language, old.summary, old.key_terms, old.raw_text);
+			INSERT INTO documents_fts(rowid, filename, doc_type, product, language, summary, key_terms, raw_text)
+			VALUES (new.id, new.filename, new.doc_type, new.product, new.language, new.summary, new.key_terms, new.raw_text);
+		END`,
 	}
 
 	for _, m := range migrations {
@@ -623,4 +699,299 @@ func (s *Store) GetLatestHealthCheck(ctx context.Context, platform string) (*Hea
 // Close closes the database.
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Documents (knowledge ingestion)
+// ---------------------------------------------------------------------------
+
+// UpsertDocument inserts a new row for path, or updates an existing row matched by path.
+// Returns the resulting document id.
+func (s *Store) UpsertDocument(ctx context.Context, d *Document) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO documents (path, filename, file_hash, size_bytes, mime_type, status, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			filename   = excluded.filename,
+			file_hash  = excluded.file_hash,
+			size_bytes = excluded.size_bytes,
+			mime_type  = excluded.mime_type,
+			status     = excluded.status,
+			error      = '',
+			updated_at = excluded.updated_at
+	`, d.Path, d.Filename, d.FileHash, d.SizeBytes, d.MimeType, d.Status, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	if id != 0 {
+		d.ID = id
+		return id, nil
+	}
+	// ON CONFLICT updated — fetch id
+	row := s.db.QueryRowContext(ctx, `SELECT id FROM documents WHERE path = ?`, d.Path)
+	if err := row.Scan(&id); err != nil {
+		return 0, err
+	}
+	d.ID = id
+	return id, nil
+}
+
+// SetDocumentStatus updates status and error for a document.
+func (s *Store) SetDocumentStatus(ctx context.Context, id int64, status, errMsg string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE documents SET status = ?, error = ?, updated_at = ? WHERE id = ?
+	`, status, errMsg, time.Now(), id)
+	return err
+}
+
+// UpdateDocumentMetadata writes classifier output + raw text and marks status=ready.
+func (s *Store) UpdateDocumentMetadata(ctx context.Context, id int64, d *Document) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE documents SET
+			doc_type    = ?,
+			product     = ?,
+			language    = ?,
+			audience    = ?,
+			summary     = ?,
+			key_terms   = ?,
+			raw_text    = ?,
+			status      = 'ready',
+			error       = '',
+			ingested_at = ?,
+			updated_at  = ?
+		WHERE id = ?
+	`, d.DocType, d.Product, d.Language, d.Audience, d.Summary, d.KeyTerms, d.RawText,
+		time.Now(), time.Now(), id)
+	return err
+}
+
+// RenameDocument updates path and filename in place (used when a file is renamed with same hash).
+func (s *Store) RenameDocument(ctx context.Context, id int64, newPath, newFilename string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE documents SET path = ?, filename = ?, updated_at = ? WHERE id = ?
+	`, newPath, newFilename, time.Now(), id)
+	return err
+}
+
+// GetDocument returns a document by id, or nil if not found.
+func (s *Store) GetDocument(ctx context.Context, id int64) (*Document, error) {
+	return s.scanDocumentRow(s.db.QueryRowContext(ctx, `
+		SELECT id, path, filename, file_hash, size_bytes, mime_type,
+		       doc_type, product, language, audience, summary, key_terms, raw_text,
+		       status, error, COALESCE(ingested_at, ''), updated_at, created_at
+		FROM documents WHERE id = ?
+	`, id))
+}
+
+// GetDocumentByPath returns a document by its file path, or nil if not found.
+func (s *Store) GetDocumentByPath(ctx context.Context, path string) (*Document, error) {
+	return s.scanDocumentRow(s.db.QueryRowContext(ctx, `
+		SELECT id, path, filename, file_hash, size_bytes, mime_type,
+		       doc_type, product, language, audience, summary, key_terms, raw_text,
+		       status, error, COALESCE(ingested_at, ''), updated_at, created_at
+		FROM documents WHERE path = ?
+	`, path))
+}
+
+// GetDocumentByHash returns a document by file_hash (any path), nil if not found.
+func (s *Store) GetDocumentByHash(ctx context.Context, hash string) (*Document, error) {
+	return s.scanDocumentRow(s.db.QueryRowContext(ctx, `
+		SELECT id, path, filename, file_hash, size_bytes, mime_type,
+		       doc_type, product, language, audience, summary, key_terms, raw_text,
+		       status, error, COALESCE(ingested_at, ''), updated_at, created_at
+		FROM documents WHERE file_hash = ? LIMIT 1
+	`, hash))
+}
+
+// DocumentFilter narrows ListDocuments results.
+type DocumentFilter struct {
+	DocType  string
+	Product  string
+	Language string
+	Status   string
+	Limit    int
+}
+
+// ListDocuments returns documents matching filter, newest first.
+func (s *Store) ListDocuments(ctx context.Context, f DocumentFilter) ([]Document, error) {
+	q := `SELECT id, path, filename, file_hash, size_bytes, mime_type,
+	             doc_type, product, language, audience, summary, key_terms, raw_text,
+	             status, error, COALESCE(ingested_at, ''), updated_at, created_at
+	      FROM documents WHERE 1=1`
+	var args []interface{}
+	if f.DocType != "" {
+		q += ` AND doc_type = ?`
+		args = append(args, f.DocType)
+	}
+	if f.Product != "" {
+		q += ` AND product = ?`
+		args = append(args, f.Product)
+	}
+	if f.Language != "" {
+		q += ` AND language = ?`
+		args = append(args, f.Language)
+	}
+	if f.Status != "" {
+		q += ` AND status = ?`
+		args = append(args, f.Status)
+	}
+	q += ` ORDER BY updated_at DESC`
+	if f.Limit > 0 {
+		q += fmt.Sprintf(` LIMIT %d`, f.Limit)
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Document
+	for rows.Next() {
+		d, err := scanDocumentFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *d)
+	}
+	return out, rows.Err()
+}
+
+// SearchDocuments runs an FTS5 query and returns ranked hits with snippets.
+func (s *Store) SearchDocuments(ctx context.Context, query, language, docType string, limit int) ([]DocumentSearchHit, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	// bm25 returns lower=better; negate so higher=better for downstream use.
+	q := `SELECT d.id, d.path, d.filename, d.file_hash, d.size_bytes, d.mime_type,
+	             d.doc_type, d.product, d.language, d.audience, d.summary, d.key_terms, d.raw_text,
+	             d.status, d.error, COALESCE(d.ingested_at, ''), d.updated_at, d.created_at,
+	             snippet(documents_fts, -1, '<mark>', '</mark>', '…', 20) AS snip,
+	             -bm25(documents_fts) AS score
+	      FROM documents_fts
+	      JOIN documents d ON d.id = documents_fts.rowid
+	      WHERE documents_fts MATCH ?`
+	args := []interface{}{query}
+	if language != "" {
+		q += ` AND d.language = ?`
+		args = append(args, language)
+	}
+	if docType != "" {
+		q += ` AND d.doc_type = ?`
+		args = append(args, docType)
+	}
+	q += ` ORDER BY score DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hits []DocumentSearchHit
+	for rows.Next() {
+		var d Document
+		var ingestedStr string
+		var snip string
+		var score float64
+		if err := rows.Scan(
+			&d.ID, &d.Path, &d.Filename, &d.FileHash, &d.SizeBytes, &d.MimeType,
+			&d.DocType, &d.Product, &d.Language, &d.Audience, &d.Summary, &d.KeyTerms, &d.RawText,
+			&d.Status, &d.Error, &ingestedStr, &d.UpdatedAt, &d.CreatedAt,
+			&snip, &score,
+		); err != nil {
+			return nil, err
+		}
+		if t, err := time.Parse("2006-01-02 15:04:05", ingestedStr); err == nil {
+			d.IngestedAt = t
+		}
+		hits = append(hits, DocumentSearchHit{Document: d, Snippet: snip, Rank: score})
+	}
+	return hits, rows.Err()
+}
+
+// DeleteDocument removes a document by id (cascades to FTS via trigger).
+func (s *Store) DeleteDocument(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM documents WHERE id = ?`, id)
+	return err
+}
+
+// DeleteDocumentByPath removes a document by path.
+func (s *Store) DeleteDocumentByPath(ctx context.Context, path string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM documents WHERE path = ?`, path)
+	return err
+}
+
+// DocumentStats returns aggregate counts grouped by status.
+func (s *Store) DocumentStats(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM documents GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{"total": 0, "pending": 0, "extracting": 0, "classifying": 0, "ready": 0, "failed": 0}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
+		out["total"] += n
+	}
+	return out, rows.Err()
+}
+
+// AllDocumentPaths returns every path currently in the table (used by startup scan for pruning).
+func (s *Store) AllDocumentPaths(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path FROM documents`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) scanDocumentRow(row *sql.Row) (*Document, error) {
+	var d Document
+	var ingestedStr string
+	err := row.Scan(
+		&d.ID, &d.Path, &d.Filename, &d.FileHash, &d.SizeBytes, &d.MimeType,
+		&d.DocType, &d.Product, &d.Language, &d.Audience, &d.Summary, &d.KeyTerms, &d.RawText,
+		&d.Status, &d.Error, &ingestedStr, &d.UpdatedAt, &d.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", ingestedStr); err == nil {
+		d.IngestedAt = t
+	}
+	return &d, nil
+}
+
+func scanDocumentFromRows(rows *sql.Rows) (*Document, error) {
+	var d Document
+	var ingestedStr string
+	if err := rows.Scan(
+		&d.ID, &d.Path, &d.Filename, &d.FileHash, &d.SizeBytes, &d.MimeType,
+		&d.DocType, &d.Product, &d.Language, &d.Audience, &d.Summary, &d.KeyTerms, &d.RawText,
+		&d.Status, &d.Error, &ingestedStr, &d.UpdatedAt, &d.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", ingestedStr); err == nil {
+		d.IngestedAt = t
+	}
+	return &d, nil
 }

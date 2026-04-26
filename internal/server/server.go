@@ -15,8 +15,10 @@ import (
 
 	"claude-bridge/internal/batch"
 	"claude-bridge/internal/browser"
+	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/whatsapp"
+	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/store"
 )
@@ -28,6 +30,9 @@ type Server struct {
 	store         *store.Store
 	browserEngine *browser.Engine
 	batchQueue    *batch.Queue
+	knowClient    *claude.Client
+	knowPipeline  *knowledge.Pipeline
+	knowWatcher   *knowledge.Watcher
 	port          int
 	listener      net.Listener
 	tlsListener   net.Listener
@@ -39,6 +44,14 @@ func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, br
 	s := &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port}
 	s.batchQueue = batch.NewQueue(s.executeBatchJob)
 	return s
+}
+
+// SetKnowledge attaches the knowledge subsystem. main.go calls this after
+// wiring up the shared claude.Client, pipeline, and watcher.
+func (s *Server) SetKnowledge(c *claude.Client, p *knowledge.Pipeline, w *knowledge.Watcher) {
+	s.knowClient = c
+	s.knowPipeline = p
+	s.knowWatcher = w
 }
 
 // executeBatchJob is the callback the batch queue uses to run each job.
@@ -76,6 +89,7 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/setup/whatsapp", s.handleWhatsApp)
 	mux.HandleFunc("/setup/whatsapp-business", s.handleWhatsAppBusiness)
 	mux.HandleFunc("/setup/facebook", s.handleFacebook)
+	mux.HandleFunc("/setup/knowledge", s.handleKnowledge)
 
 	// API — general status
 	mux.HandleFunc("/api/status", s.handleAPIStatus)
@@ -135,6 +149,14 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/whatsapp/send", s.handleWASend)
 	mux.HandleFunc("/api/whatsapp/messages", s.handleWAMessages)
 	mux.HandleFunc("/api/whatsapp/contacts", s.handleWAContacts)
+
+	// API — Knowledge ingestion
+	mux.HandleFunc("/api/knowledge/config", s.handleKnowledgeConfig)
+	mux.HandleFunc("/api/browse-folder", s.handleBrowseFolder)
+	mux.HandleFunc("/api/documents", s.handleDocumentsList)
+	mux.HandleFunc("/api/documents/", s.handleDocumentByID) // /api/documents/{id} and /api/documents/{id}/reingest
+	mux.HandleFunc("/api/documents/search", s.handleDocumentsSearch)
+	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
 
 	// MCP SSE endpoints — available for remote MCP clients
 	mcpHandler := mcp.NewSSEHandler(fmt.Sprintf("http://127.0.0.1:%d", s.port))
