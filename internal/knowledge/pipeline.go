@@ -33,6 +33,11 @@ type Pipeline struct {
 	stop   chan struct{}
 	stopMu sync.Mutex
 	done   chan struct{}
+
+	// Rate limiting — set via Configure() before Start().
+	classifyDelay time.Duration
+	sessionLimit  int
+	sessionCount  int // counts new classifications in current session
 }
 
 type jobKind int
@@ -47,14 +52,26 @@ type job struct {
 	path string
 }
 
-// NewPipeline wires a pipeline. Call Start() to begin processing.
+// NewPipeline wires a pipeline. Call Configure() then Start().
 func NewPipeline(s *store.Store, c *claude.Client) *Pipeline {
 	return &Pipeline{
-		store:  s,
-		client: c,
-		in:     make(chan job, 256),
-		stop:   make(chan struct{}),
-		done:   make(chan struct{}),
+		store:         s,
+		client:        c,
+		in:            make(chan job, 256),
+		stop:          make(chan struct{}),
+		done:          make(chan struct{}),
+		classifyDelay: time.Duration(DefaultClassifyDelaySec) * time.Second,
+		sessionLimit:  DefaultSessionLimit,
+	}
+}
+
+// Configure applies rate-limit settings from Config. Call before Start().
+func (p *Pipeline) Configure(cfg Config) {
+	if cfg.ClassifyDelaySec > 0 {
+		p.classifyDelay = time.Duration(cfg.ClassifyDelaySec) * time.Second
+	}
+	if cfg.SessionLimit > 0 {
+		p.sessionLimit = cfg.SessionLimit
 	}
 }
 
@@ -101,8 +118,26 @@ func (p *Pipeline) run() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			switch j.kind {
 			case jobIngest:
-				if err := p.ingest(ctx, j.path); err != nil {
+				classified, err := p.ingest(ctx, j.path)
+				if err != nil {
 					log.Printf("[knowledge] ingest %s: %v", j.path, err)
+				}
+				// Rate limit: sleep after each new classification to avoid token burn.
+				if classified {
+					p.sessionCount++
+					if p.sessionLimit > 0 && p.sessionCount >= p.sessionLimit {
+						log.Printf("[knowledge] session limit %d reached — pausing new classifications. Use 'Rescan' or increase the limit.", p.sessionLimit)
+						cancel()
+						// Drain remaining ingest jobs silently until stop.
+						p.drainPending()
+						return
+					}
+					select {
+					case <-p.stop:
+						cancel()
+						return
+					case <-time.After(p.classifyDelay):
+					}
 				}
 			case jobDelete:
 				if err := p.store.DeleteDocumentByPath(ctx, j.path); err != nil {
@@ -114,39 +149,55 @@ func (p *Pipeline) run() {
 	}
 }
 
+// drainPending discards all pending ingest jobs without processing them.
+// Called when session limit is hit so the goroutine can exit cleanly.
+func (p *Pipeline) drainPending() {
+	for {
+		select {
+		case <-p.in:
+		case <-p.stop:
+			return
+		default:
+			return
+		}
+	}
+}
+
 // IngestOnce runs the full pipeline for one path synchronously. Exposed for
 // manual re-ingest triggered from the dashboard.
 func (p *Pipeline) IngestOnce(ctx context.Context, path string) error {
-	return p.ingest(ctx, path)
+	_, err := p.ingest(ctx, path)
+	return err
 }
 
-func (p *Pipeline) ingest(ctx context.Context, path string) error {
+// ingest returns (classified, error) where classified=true means a new API call was made.
+func (p *Pipeline) ingest(ctx context.Context, path string) (bool, error) {
 	if !IsSupported(path) {
-		return nil // silently skip unsupported files
+		return false, nil // silently skip unsupported files
 	}
 
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return p.store.DeleteDocumentByPath(ctx, path)
+			return false, p.store.DeleteDocumentByPath(ctx, path)
 		}
-		return err
+		return false, err
 	}
 	if info.IsDir() {
-		return nil
+		return false, nil
 	}
 
 	hash, err := hashFile(path)
 	if err != nil {
-		return fmt.Errorf("hash: %w", err)
+		return false, fmt.Errorf("hash: %w", err)
 	}
 
 	existing, err := p.store.GetDocumentByPath(ctx, path)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if existing != nil && existing.FileHash == hash && existing.Status == "ready" {
-		return nil // unchanged, already ingested
+		return false, nil // unchanged, already ingested
 	}
 
 	// Rename detection: same hash, different path, and prior row exists.
@@ -155,9 +206,9 @@ func (p *Pipeline) ingest(ctx context.Context, path string) error {
 			// Only treat as rename if the old path no longer exists.
 			if _, err := os.Stat(prior.Path); os.IsNotExist(err) {
 				if err := p.store.RenameDocument(ctx, prior.ID, path, filepath.Base(path)); err != nil {
-					return err
+					return false, err
 				}
-				return nil
+				return false, nil
 			}
 		}
 	}
@@ -173,17 +224,17 @@ func (p *Pipeline) ingest(ctx context.Context, path string) error {
 	}
 	id, err := p.store.UpsertDocument(ctx, doc)
 	if err != nil {
-		return fmt.Errorf("upsert: %w", err)
+		return false, fmt.Errorf("upsert: %w", err)
 	}
 
 	// Extract.
 	if err := p.store.SetDocumentStatus(ctx, id, "extracting", ""); err != nil {
-		return err
+		return false, err
 	}
 	ex, err := Extract(path)
 	if err != nil {
 		_ = p.store.SetDocumentStatus(ctx, id, "failed", "extract: "+err.Error())
-		return err
+		return false, err
 	}
 
 	// Folder hints.
@@ -191,7 +242,7 @@ func (p *Pipeline) ingest(ctx context.Context, path string) error {
 
 	// Classify.
 	if err := p.store.SetDocumentStatus(ctx, id, "classifying", ""); err != nil {
-		return err
+		return false, err
 	}
 	var md claude.Metadata
 	if len(ex.ImageBytes) > 0 {
@@ -201,7 +252,7 @@ func (p *Pipeline) ingest(ctx context.Context, path string) error {
 	}
 	if err != nil {
 		_ = p.store.SetDocumentStatus(ctx, id, "failed", "classify: "+err.Error())
-		return err
+		return false, err
 	}
 
 	// Serialize metadata into the document shape.
@@ -221,9 +272,9 @@ func (p *Pipeline) ingest(ctx context.Context, path string) error {
 		RawText:  rawText,
 	}
 	if err := p.store.UpdateDocumentMetadata(ctx, id, dbDoc); err != nil {
-		return fmt.Errorf("update metadata: %w", err)
+		return false, fmt.Errorf("update metadata: %w", err)
 	}
-	return nil
+	return true, nil // classified = new API call was made
 }
 
 // hashFile returns sha256 hex of the file contents.

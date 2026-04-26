@@ -27,24 +27,33 @@ func (s *Server) handleKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		cfg, _ := knowledge.LoadConfig(ctx, s.store)
 		writeJSON(w, map[string]interface{}{
-			"folder_path":     cfg.FolderPath,
-			"model":           cfg.Model,
-			"last_scan_at":    cfg.LastScanAt,
-			"watcher_running": s.knowWatcher != nil && s.knowWatcher.Running(),
-			"watcher_folder":  watcherFolder(s.knowWatcher),
-			"api_calls":       apiCallsOf(s.knowClient),
+			"folder_path":        cfg.FolderPath,
+			"model":              cfg.Model,
+			"last_scan_at":       cfg.LastScanAt,
+			"classify_delay_sec": cfg.ClassifyDelaySec,
+			"session_limit":      cfg.SessionLimit,
+			"watcher_running":    s.knowWatcher != nil && s.knowWatcher.Running(),
+			"watcher_folder":     watcherFolder(s.knowWatcher),
+			"api_calls":          apiCallsOf(s.knowClient),
 		})
 	case http.MethodPost:
 		var body struct {
-			FolderPath string `json:"folder_path"`
-			Model      string `json:"model"`
+			FolderPath       string `json:"folder_path"`
+			Model            string `json:"model"`
+			ClassifyDelaySec int    `json:"classify_delay_sec"`
+			SessionLimit     int    `json:"session_limit"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
 			return
 		}
-		cfg := knowledge.Config{FolderPath: body.FolderPath, Model: body.Model}
-		if body.Model == "" {
+		cfg := knowledge.Config{
+			FolderPath:       body.FolderPath,
+			Model:            body.Model,
+			ClassifyDelaySec: body.ClassifyDelaySec,
+			SessionLimit:     body.SessionLimit,
+		}
+		if cfg.Model == "" {
 			cfg.Model = claude.DefaultModel
 		}
 		if err := knowledge.SaveConfig(ctx, s.store, cfg); err != nil {

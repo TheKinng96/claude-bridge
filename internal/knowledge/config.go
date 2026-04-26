@@ -12,10 +12,15 @@ const platformKnowledge = "knowledge"
 
 // Config is what the dashboard reads/writes.
 type Config struct {
-	FolderPath  string    `json:"folder_path"`
-	Model       string    `json:"model"`
-	LastScanAt  time.Time `json:"last_scan_at,omitempty"`
+	FolderPath      string    `json:"folder_path"`
+	Model           string    `json:"model"`
+	LastScanAt      time.Time `json:"last_scan_at,omitempty"`
+	ClassifyDelaySec int      `json:"classify_delay_sec"` // seconds between API calls, 0 = use default
+	SessionLimit    int       `json:"session_limit"`      // max new files classified per startup, 0 = use default
 }
+
+const DefaultClassifyDelaySec = 10 // 10 seconds between claude --print calls
+const DefaultSessionLimit     = 20 // classify at most 20 new files per startup
 
 // LoadConfig reads the saved folder + model. Returns zero Config if unset.
 func LoadConfig(ctx context.Context, s *store.Store) (Config, error) {

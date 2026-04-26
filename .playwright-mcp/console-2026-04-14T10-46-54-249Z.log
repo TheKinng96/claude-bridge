@@ -1,0 +1,32 @@
+[     978ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ :0
+[     978ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable a Facebook feature or "hack" someone's account, it's a scam and will give them access to your Facebook account. font-family:helvetica; font-size:20px;  @ :0
+[     978ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ :0
+[     978ms] [LOG] 
+%c  @ :0
+[   48085ms] [ERROR] Permissions policy violation: unload is not allowed in this document. @ https://static.xx.fbcdn.net/rsrc.php/v4/y8/r/uY2TWoRV0V9.js:335
+[   51181ms] [WARNING] Blocked aria-hidden on an element because its descendant retained focus. The focus must not be hidden from assistive technology users. Avoid using aria-hidden on a focused element or its ancestor. Consider using the inert attribute instead, which will also prevent focus. For more details, see the aria-hidden section of the WAI-ARIA specification at https://w3c.github.io/aria/#aria-hidden.
+Element with focus: <div.xzsf02u x1a2a7pz x1n2onr6 x14wi4xw x1iyjqo2 x19gmnou xisnujt xeuugli x1odjw0f notranslate>
+Ancestor with aria-hidden: <div.x9f619 x1ja2u2z x1pq812k x5yr21d x1o0tod xw2csxc x1odjw0f xixxii4 x1rohswg x13vifvy xh8yej3 xfk6m8 x1yqm8si xjx87ck#scrollview> @ https://www.messenger.com/t/387888751278120/:0
+[   51809ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[   51809ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable a Facebook feature or "hack" someone's account, it's a scam and will give them access to your Facebook account. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[   51809ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[   51809ms] [LOG] 
+%c  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[   54819ms] [WARNING] Blocked aria-hidden on an element because its descendant retained focus. The focus must not be hidden from assistive technology users. Avoid using aria-hidden on a focused element or its ancestor. Consider using the inert attribute instead, which will also prevent focus. For more details, see the aria-hidden section of the WAI-ARIA specification at https://w3c.github.io/aria/#aria-hidden.
+Element with focus: <input.x1i10hfl x9f619 xggy1nq xtpw4lu x1tutvks x1s3xk63 x1s07b3s x1kdt53j x18bame2 x1a2a7pz xvetz19 x5yr21d x1o0tod xg01cxk x10l6tqk x13vifvy xh8yej3#mw-numeric-code-input-prevent-composer-focus-steal>
+Ancestor with aria-hidden: <div.x9f619 x1ja2u2z x1pq812k x5yr21d x1o0tod xw2csxc x1odjw0f xixxii4 x1rohswg x13vifvy xh8yej3 xfk6m8 x1yqm8si xjx87ck#scrollview> @ https://www.messenger.com/t/387888751278120/:0
+[ 6118536ms] [ERROR] Permissions policy violation: unload is not allowed in this document. @ https://static.xx.fbcdn.net/rsrc.php/v4/y8/r/uY2TWoRV0V9.js:335
+[ 6121694ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[ 6121694ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable a Facebook feature or "hack" someone's account, it's a scam and will give them access to your Facebook account. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[ 6121694ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[ 6121694ms] [LOG] 
+%c  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255

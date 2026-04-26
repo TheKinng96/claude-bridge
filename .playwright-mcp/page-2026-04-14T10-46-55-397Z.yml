@@ -1,0 +1,44 @@
+- generic [ref=e3]:
+  - main "Main content" [ref=e4]:
+    - banner "Header" [ref=e5]:
+      - generic [ref=e7]:
+        - link "Messenger" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img "Messenger" [ref=e13]
+        - list [ref=e14]:
+          - listitem [ref=e15]:
+            - button "Features" [ref=e16] [cursor=pointer]:
+              - paragraph [ref=e18]: Features
+              - img [ref=e20]
+          - listitem [ref=e22]:
+            - link "Privacy and Safety" [ref=e23] [cursor=pointer]:
+              - /url: https://www.messenger.com/privacy
+              - generic [ref=e24]: Privacy and Safety
+          - listitem [ref=e25]:
+            - link "For Developers" [ref=e26] [cursor=pointer]:
+              - /url: https://developers.facebook.com/products/messenger/
+              - generic [ref=e27]: For Developers
+          - listitem [ref=e28]:
+            - link "Help Center" [ref=e29] [cursor=pointer]:
+              - /url: https://www.messenger.com/help
+              - generic [ref=e30]: Help Center
+    - generic [ref=e39]:
+      - heading "A place for meaningful conversations" [level=1] [ref=e43]
+      - paragraph [ref=e46]: Messenger helps you connect with your Facebook friends and family, build your community, and deepen your interests.
+      - generic "Loading..." [ref=e51]
+  - main "Main content" [ref=e55]:
+    - contentinfo "Footer" [ref=e56]:
+      - generic [ref=e61]:
+        - generic [ref=e62]: © Meta 2026
+        - generic [ref=e63]:
+          - generic [ref=e64]:
+            - link "Privacy Policy" [ref=e66] [cursor=pointer]:
+              - /url: https://www.facebook.com/privacy/policy
+            - link "Cookie Policy" [ref=e68] [cursor=pointer]:
+              - /url: https://messenger.com/policy/cookies
+            - link "Terms" [ref=e70] [cursor=pointer]:
+              - /url: https://www.facebook.com/policies/?ref=pf
+            - button "English (US)" [ref=e74] [cursor=pointer]:
+              - text: English (US)
+              - img [ref=e75]
+          - img "From Meta Logo" [ref=e77]

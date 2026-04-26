@@ -1,0 +1,23 @@
+[     773ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://www.facebook.com/:0
+[    1516ms] [WARNING] [.WebGL-0x10400437800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ https://www.facebook.com/:0
+[    1516ms] [WARNING] [.WebGL-0x10400433c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ https://www.facebook.com/:0
+[    1516ms] [WARNING] [.WebGL-0x1040043a200]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels @ https://www.facebook.com/:0
+[    1516ms] [WARNING] [.WebGL-0x1040043d800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat) @ https://www.facebook.com/:0
+[    1528ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ https://static.xx.fbcdn.net/rsrc.php/v4/yG/r/3Rvb55XdAYB.js:255
+[    1528ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable a Facebook feature or "hack" someone's account, it's a scam and will give them access to your Facebook account. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yG/r/3Rvb55XdAYB.js:255
+[    1528ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yG/r/3Rvb55XdAYB.js:255
+[    1528ms] [LOG] 
+%c  @ https://static.xx.fbcdn.net/rsrc.php/v4/yG/r/3Rvb55XdAYB.js:255
+[  227929ms] [ERROR] Permissions policy violation: unload is not allowed in this document. @ https://static.xx.fbcdn.net/rsrc.php/v4/y8/r/uY2TWoRV0V9.js:335
+[  228335ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[  228335ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable a Facebook feature or "hack" someone's account, it's a scam and will give them access to your Facebook account. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[  228335ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[  228335ms] [LOG] 
+%c  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[  539311ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ https://static.xx.fbcdn.net/rsrc.php/v4igfU4/yi/l/en_US-j/vqs77TIA4QqkQ17jFjjnlY1K0zsYy8Wb6QPA1LaORYpTY1IOAwYaM5KYjbMvBrGg4QwmcWE-wbdTWqGDx1GXqO2U0FctnsognOBw5ko7maCtcb2JgcCJZkfIy7Ue8wG2daOnVX2RP6qNRuoUcf3x_5796rw8w3xPg73CXb_LlsAehSHCxFskko0D2PADvWTCZQUkLd5t9REcihQzMzylk4p3Wrc5MoPFqqAfg5_lgjt-4llXhv.js:260

@@ -1,0 +1,9 @@
+[    1810ms] [ERROR] Permissions policy violation: unload is not allowed in this document. @ https://static.xx.fbcdn.net/rsrc.php/v4/y8/r/uY2TWoRV0V9.js:335
+[    4270ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[    4270ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable a Facebook feature or "hack" someone's account, it's a scam and will give them access to your Facebook account. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[    4270ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255
+[    4270ms] [LOG] 
+%c  @ https://static.xx.fbcdn.net/rsrc.php/v4/yt/r/4WE1H_5JWE4.js:255

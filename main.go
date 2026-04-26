@@ -83,6 +83,7 @@ func main() {
 	knowCfg, _ := knowledge.LoadConfig(knowCtx, appStore)
 	knowClient := claude.New("", knowCfg.Model)
 	knowPipeline := knowledge.NewPipeline(appStore, knowClient)
+	knowPipeline.Configure(knowCfg)
 	knowPipeline.Start()
 	knowWatcher := knowledge.NewWatcher(appStore, knowPipeline)
 	if knowCfg.FolderPath != "" {

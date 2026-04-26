@@ -1,0 +1,1297 @@
+- generic [ref=e5]:
+  - banner:
+    - generic [ref=e6]:
+      - generic:
+        - generic:
+          - button [disabled]:
+            - img
+      - link "Facebook" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - img [ref=e8]
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - generic:
+          - generic:
+            - generic:
+              - button:
+                - img
+      - generic [ref=e19]:
+        - generic:
+          - img
+        - combobox "Search Facebook" [ref=e20] [cursor=pointer]
+    - navigation "Facebook" [ref=e24]:
+      - list [ref=e25]:
+        - listitem [ref=e26]:
+          - link "Home" [ref=e29] [cursor=pointer]:
+            - /url: /
+            - img [ref=e31]
+        - listitem [ref=e33]:
+          - link "Reels" [ref=e36] [cursor=pointer]:
+            - /url: /reel/?s=tab
+            - img [ref=e38]
+        - listitem [ref=e41]:
+          - link "Marketplace" [ref=e44] [cursor=pointer]:
+            - /url: /marketplace/?ref=app_tab
+            - img [ref=e46]
+        - listitem [ref=e48]:
+          - link "Groups" [ref=e51] [cursor=pointer]:
+            - /url: /groups/
+            - img [ref=e53]
+        - listitem [ref=e55]:
+          - link "Gaming" [ref=e58] [cursor=pointer]:
+            - /url: /gaming/play/?store_visit_source=gaming_tab
+            - img [ref=e60]
+    - navigation "Account Controls and Settings" [ref=e64]:
+      - button "Facebook menu" [ref=e68] [cursor=pointer]:
+        - img [ref=e69]
+      - generic [ref=e74]:
+        - button "Messenger, 6 unread" [ref=e75] [cursor=pointer]:
+          - img [ref=e76]
+        - button [ref=e78] [cursor=pointer]:
+          - generic [ref=e81]:
+            - generic [ref=e82]: 6 Unread Chats
+            - generic [ref=e83]: "6"
+      - generic [ref=e87]:
+        - button "Notifications, 9 unread" [ref=e88] [cursor=pointer]:
+          - img [ref=e89]
+        - button [ref=e91] [cursor=pointer]:
+          - generic [ref=e92]:
+            - generic [ref=e93]: Number of unread notifications
+            - generic [ref=e94]: "9"
+      - button "Your profile" [ref=e97] [cursor=pointer]:
+        - generic [ref=e98]:
+          - img "Your profile" [ref=e99]
+          - img [ref=e106]
+  - main [ref=e115]:
+    - generic [ref=e116]:
+      - generic [ref=e126]:
+        - link "View profile cover photo" [ref=e127] [cursor=pointer]:
+          - /url: https://www.facebook.com/photo/?fbid=10220187695715113&set=a.4158348689528
+        - button "Edit cover photo" [ref=e137] [cursor=pointer]:
+          - generic [ref=e138]:
+            - img [ref=e139]
+            - generic [ref=e143]: Edit cover photo
+      - generic [ref=e147]:
+        - button "Profile picture actions" [ref=e151] [cursor=pointer]:
+          - generic [ref=e152]:
+            - img "Profile picture actions" [ref=e153]
+            - button [ref=e160]:
+              - img [ref=e161]
+        - generic [ref=e166]:
+          - generic [ref=e168]:
+            - generic [ref=e171]:
+              - heading "Yap Feng Yuan" [level=1] [ref=e176]:
+                - button "Yap Feng Yuan" [ref=e177] [cursor=pointer]: Yap Feng Yuan
+              - link "1.5K friends" [ref=e180] [cursor=pointer]:
+                - /url: https://www.facebook.com/fengyuan.yap/friends_all/
+                - strong [ref=e181]: 1.5K
+                - text: friends
+            - generic [ref=e184]:
+              - link "Add to story" [ref=e187] [cursor=pointer]:
+                - /url: https://www.facebook.com/stories/create/
+                - generic [ref=e190]: Add to story
+              - link "Edit profile" [ref=e193] [cursor=pointer]:
+                - /url: /profile.php?fb_profile_edit_entry_point=%7B%22click_point%22%3A%22edit_profile_button%22%2C%22feature%22%3A%22profile_header%22%7D&id=1608356208&sk=about
+                - generic [ref=e196]: Edit profile
+              - button "See recommendations" [ref=e198] [cursor=pointer]:
+                - img [ref=e200]
+          - generic [ref=e203]:
+            - text: LOVE fam and friends, even I don't talk much
+            - text: Web developer
+          - list "Highlighted details" [ref=e207]:
+            - listitem [ref=e208]:
+              - generic [ref=e209]: Nerima-ku, Tokyo
+            - listitem [ref=e211]:
+              - link "創価大学（Soka University, Japan）" [ref=e214] [cursor=pointer]:
+                - /url: https://www.facebook.com/sokauniversity
+                - generic [ref=e216]: 創価大学（Soka University, Japan）
+    - generic [ref=e225]:
+      - tablist [ref=e233]:
+        - generic:
+          - generic:
+            - generic [ref=e235]:
+              - generic [ref=e236]: More
+              - img [ref=e238]
+            - tab "All" [selected] [ref=e241] [cursor=pointer]:
+              - generic [ref=e243]: All
+            - tab "About" [ref=e245] [cursor=pointer]:
+              - generic [ref=e247]: About
+            - tab "Friends" [ref=e249] [cursor=pointer]:
+              - generic [ref=e251]: Friends
+            - tab "Photos" [ref=e253] [cursor=pointer]:
+              - generic [ref=e255]: Photos
+            - tab "Reels" [ref=e257] [cursor=pointer]:
+              - generic [ref=e259]: Reels
+            - tab "More profile sections" [ref=e261] [cursor=pointer]:
+              - generic [ref=e262]:
+                - generic [ref=e263]: More
+                - img [ref=e265]
+      - button "Profile settings see more options" [ref=e270] [cursor=pointer]:
+        - img [ref=e272]
+    - generic [ref=e278]:
+      - generic [ref=e282]:
+        - generic [ref=e284]:
+          - generic [ref=e288]:
+            - generic [ref=e289]:
+              - heading "Personal details" [level=2] [ref=e293]:
+                - generic [ref=e294]: Personal details
+              - link "Edit Personal details" [ref=e295] [cursor=pointer]:
+                - /url: https://www.facebook.com/fengyuan.yap/directory_personal_details?fb_profile_edit_entry_point=%7B%22feature%22%3A%22profile_directory%22%2C%22click_point%22%3A%22pencil_edit_directory_section%22%2C%22additional_metadata%22%3A%7B%22section_type%22%3A%22personal_details%22%7D%7D
+                - img [ref=e297]
+            - list "Personal details" [ref=e299]:
+              - button "Lives in Nerima, Tokyo" [ref=e300] [cursor=pointer]:
+                - listitem [ref=e304]:
+                  - generic [ref=e306]: Lives in Nerima, Tokyo
+              - button "From Kemaman, Terengganu, Malaysia" [ref=e307] [cursor=pointer]:
+                - listitem [ref=e311]:
+                  - generic [ref=e313]: From Kemaman, Terengganu, Malaysia
+              - button "November 25, 1993" [ref=e314] [cursor=pointer]:
+                - listitem [ref=e318]:
+                  - generic [ref=e320]: November 25, 1993
+              - listitem [ref=e324]:
+                - generic [ref=e325]:
+                  - generic [ref=e328]:
+                    - text: Married to
+                    - link "Hoyi Chong" [ref=e329] [cursor=pointer]:
+                      - /url: https://www.facebook.com/hoyichong
+                      - generic [ref=e331]: Hoyi Chong
+                  - generic [ref=e333]: Since May 6, 2023
+              - button "Family facepile image of Jin Mei facepile image of Qonex Yap facepile image of Jing Wei See everyone 8 family members" [ref=e334] [cursor=pointer]:
+                - listitem [ref=e338]:
+                  - generic [ref=e339]: Family
+                  - generic [ref=e341]:
+                    - list [ref=e343]:
+                      - listitem [ref=e344]:
+                        - button "facepile image of Jin Mei" [ref=e348]:
+                          - img [ref=e350]
+                      - listitem [ref=e354]:
+                        - button "facepile image of Qonex Yap" [ref=e358]:
+                          - img [ref=e360]
+                      - listitem [ref=e364]:
+                        - button "facepile image of Jing Wei" [ref=e368]:
+                          - img [ref=e370]
+                      - listitem:
+                        - button "See everyone" [ref=e374]:
+                          - img [ref=e375]
+                    - generic [ref=e380]: 8 family members
+              - listitem [ref=e384]:
+                - generic [ref=e388]: Male
+          - generic [ref=e392]:
+            - generic [ref=e393]:
+              - heading "Education" [level=2] [ref=e397]:
+                - generic [ref=e398]: Education
+              - link "Edit Education" [ref=e399] [cursor=pointer]:
+                - /url: https://www.facebook.com/fengyuan.yap/directory_education?fb_profile_edit_entry_point=%7B%22feature%22%3A%22profile_directory%22%2C%22click_point%22%3A%22pencil_edit_directory_section%22%2C%22additional_metadata%22%3A%7B%22section_type%22%3A%22education%22%7D%7D
+                - img [ref=e401]
+            - list "Education" [ref=e403]:
+              - button "創価大学（Soka University, Japan） On April 2, 2016" [ref=e404] [cursor=pointer]:
+                - generic [ref=e406]:
+                  - img [ref=e409]
+                  - listitem [ref=e413]:
+                    - generic [ref=e414]:
+                      - generic [ref=e418]: 創価大学（Soka University, Japan）
+                      - generic [ref=e420]: On April 2, 2016
+              - button "See more education" [ref=e421] [cursor=pointer]:
+                - generic [ref=e423]: See more education
+          - generic [ref=e427]:
+            - generic [ref=e428]:
+              - heading "Contact info" [level=2] [ref=e432]:
+                - generic [ref=e433]: Contact info
+              - link "Edit Contact info" [ref=e434] [cursor=pointer]:
+                - /url: https://www.facebook.com/fengyuan.yap/directory_contact_info?fb_profile_edit_entry_point=%7B%22feature%22%3A%22profile_directory%22%2C%22click_point%22%3A%22pencil_edit_directory_section%22%2C%22additional_metadata%22%3A%7B%22section_type%22%3A%22contact_info%22%7D%7D
+                - img [ref=e436]
+            - list "Contact info" [ref=e438]:
+              - listitem [ref=e442]:
+                - generic [ref=e445]:
+                  - button [ref=e446] [cursor=pointer]
+                  - text: fengyuan.yap@gmail.com
+        - generic [ref=e450]:
+          - heading "Highlights" [level=2] [ref=e459]:
+            - generic [ref=e461]: Highlights
+          - button "Add highlights" [ref=e465] [cursor=pointer]:
+            - generic [ref=e468]: Add highlights
+        - generic [ref=e472]:
+          - generic [ref=e476]:
+            - generic [ref=e479]:
+              - heading "Friends" [level=2] [ref=e481]:
+                - link "Friends" [ref=e484] [cursor=pointer]:
+                  - /url: https://www.facebook.com/fengyuan.yap/friends
+              - link "See all friends" [ref=e489] [cursor=pointer]:
+                - /url: https://www.facebook.com/fengyuan.yap/friends
+                - generic [ref=e490]: See all friends
+            - generic [ref=e493]: 1,529 friends
+          - generic [ref=e497]:
+            - generic [ref=e498]:
+              - link [ref=e501] [cursor=pointer]:
+                - /url: https://www.facebook.com/jin.m.yap
+              - generic [ref=e504]:
+                - link "Jin Mei" [ref=e508] [cursor=pointer]:
+                  - /url: https://www.facebook.com/jin.m.yap
+                  - generic [ref=e509]: Jin Mei
+                - generic [ref=e511]: 229 mutual friends
+            - generic [ref=e512]:
+              - link [ref=e515] [cursor=pointer]:
+                - /url: https://www.facebook.com/teo.fion
+              - generic [ref=e518]:
+                - link "Fion Teo" [ref=e522] [cursor=pointer]:
+                  - /url: https://www.facebook.com/teo.fion
+                  - generic [ref=e523]: Fion Teo
+                - generic [ref=e525]: 140 mutual friends
+            - generic [ref=e526]:
+              - link [ref=e529] [cursor=pointer]:
+                - /url: https://www.facebook.com/yap.cheewee.9
+              - generic [ref=e532]:
+                - link "Ah Wai" [ref=e536] [cursor=pointer]:
+                  - /url: https://www.facebook.com/yap.cheewee.9
+                  - generic [ref=e537]: Ah Wai
+                - generic [ref=e539]: 81 mutual friends
+            - generic [ref=e540]:
+              - link [ref=e543] [cursor=pointer]:
+                - /url: https://www.facebook.com/yap.y.phing
+              - generic [ref=e546]:
+                - link "Yan Phing" [ref=e550] [cursor=pointer]:
+                  - /url: https://www.facebook.com/yap.y.phing
+                  - generic [ref=e551]: Yan Phing
+                - generic [ref=e553]: 129 mutual friends
+            - generic [ref=e554]:
+              - link [ref=e557] [cursor=pointer]:
+                - /url: https://www.facebook.com/celine.l.li.1
+              - generic [ref=e560]:
+                - link "Celine Celine Celine" [ref=e564] [cursor=pointer]:
+                  - /url: https://www.facebook.com/celine.l.li.1
+                  - generic [ref=e565]: Celine Celine Celine
+                - generic [ref=e567]: 81 mutual friends
+            - generic [ref=e568]:
+              - link [ref=e571] [cursor=pointer]:
+                - /url: https://www.facebook.com/yuxin.lim.982
+              - generic [ref=e574]:
+                - link "Yuxin Lim II" [ref=e578] [cursor=pointer]:
+                  - /url: https://www.facebook.com/yuxin.lim.982
+                  - generic [ref=e579]: Yuxin Lim II
+                - generic [ref=e581]: 5 mutual friends
+            - generic [ref=e582]:
+              - link [ref=e585] [cursor=pointer]:
+                - /url: https://www.facebook.com/linlee.tan
+              - generic [ref=e588]:
+                - link "Linlee Tan" [ref=e592] [cursor=pointer]:
+                  - /url: https://www.facebook.com/linlee.tan
+                  - generic [ref=e593]: Linlee Tan
+                - generic [ref=e595]: 18 mutual friends
+            - generic [ref=e596]:
+              - link [ref=e599] [cursor=pointer]:
+                - /url: https://www.facebook.com/hui.yee.927
+              - generic [ref=e602]:
+                - link "Katherine Chee" [ref=e606] [cursor=pointer]:
+                  - /url: https://www.facebook.com/hui.yee.927
+                  - generic [ref=e607]: Katherine Chee
+                - generic [ref=e609]: 96 mutual friends
+            - generic [ref=e610]:
+              - link [ref=e613] [cursor=pointer]:
+                - /url: https://www.facebook.com/ng.k.cheong
+              - generic [ref=e616]:
+                - link "KC Ng" [ref=e620] [cursor=pointer]:
+                  - /url: https://www.facebook.com/ng.k.cheong
+                  - generic [ref=e621]: KC Ng
+                - generic [ref=e623]: 82 mutual friends
+        - generic [ref=e627]:
+          - generic [ref=e634]:
+            - heading "Photos" [level=2] [ref=e636]:
+              - link "Photos" [ref=e639] [cursor=pointer]:
+                - /url: https://www.facebook.com/fengyuan.yap/photos
+            - link "See all photos" [ref=e644] [cursor=pointer]:
+              - /url: https://www.facebook.com/fengyuan.yap/photos
+              - generic [ref=e645]: See all photos
+          - generic [ref=e649]:
+            - link [ref=e652] [cursor=pointer]:
+              - /url: /photo/?fbid=10160217833598732&set=pob.1608356208
+            - link [ref=e657] [cursor=pointer]:
+              - /url: /photo/?fbid=10215420731607512&set=pob.1608356208
+            - link [ref=e662] [cursor=pointer]:
+              - /url: /photo/?fbid=10229775726687937&set=pob.1608356208
+            - link [ref=e667] [cursor=pointer]:
+              - /url: /photo/?fbid=10222877813206369&set=pob.1608356208
+            - link [ref=e672] [cursor=pointer]:
+              - /url: /photo/?fbid=885936791853475&set=pob.1608356208
+            - link [ref=e677] [cursor=pointer]:
+              - /url: /photo/?fbid=10157271932529718&set=pob.1608356208
+            - link [ref=e682] [cursor=pointer]:
+              - /url: /photo/?fbid=2301462959889244&set=pob.1608356208
+            - link [ref=e687] [cursor=pointer]:
+              - /url: /photo/?fbid=10157035357569718&set=pob.1608356208
+            - link [ref=e692] [cursor=pointer]:
+              - /url: /photo/?fbid=10156937769819718&set=pob.1608356208
+        - contentinfo "Facebook" [ref=e695]:
+          - list [ref=e697]:
+            - listitem [ref=e698]:
+              - link "Privacy" [ref=e699] [cursor=pointer]:
+                - /url: /privacy/policy/?entry_point=comet_dropdown
+              - generic [ref=e700]: ·
+            - listitem [ref=e702]:
+              - link "Terms" [ref=e703] [cursor=pointer]:
+                - /url: /policies?ref=pf
+              - generic [ref=e704]: ·
+            - listitem [ref=e706]:
+              - link "Advertising" [ref=e707] [cursor=pointer]:
+                - /url: /business/
+              - generic [ref=e708]: ·
+            - listitem [ref=e710]:
+              - link "Ad Choices" [ref=e711] [cursor=pointer]:
+                - /url: /help/568137493302217
+                - text: Ad Choices
+                - img [ref=e713]
+              - generic [ref=e716]: ·
+            - listitem [ref=e718]:
+              - link "Cookies" [ref=e719] [cursor=pointer]:
+                - /url: /policies/cookies/
+              - generic [ref=e720]: ·
+            - listitem [ref=e722]:
+              - button "More footer links" [ref=e723] [cursor=pointer]: More
+      - generic [ref=e724]:
+        - generic [ref=e729]:
+          - generic [ref=e730]:
+            - link "Yap Feng Yuan's Timeline" [ref=e731] [cursor=pointer]:
+              - /url: https://www.facebook.com/fengyuan.yap
+              - img [ref=e734]
+            - button "What's on your mind?" [ref=e738] [cursor=pointer]:
+              - generic [ref=e740]: What's on your mind?
+          - generic [ref=e741]:
+            - button "Live video" [ref=e742] [cursor=pointer]:
+              - generic [ref=e746]: Live video
+            - button "Photo/video" [ref=e747] [cursor=pointer]:
+              - generic [ref=e751]: Photo/video
+            - button "Life update" [ref=e752] [cursor=pointer]:
+              - generic [ref=e756]: Life update
+        - generic [ref=e759]:
+          - generic [ref=e760]:
+            - heading "Posts" [level=2] [ref=e764]:
+              - generic [ref=e765]: Posts
+            - generic [ref=e767]:
+              - button "Filters" [ref=e769] [cursor=pointer]:
+                - generic [ref=e770]:
+                  - img [ref=e771]
+                  - generic [ref=e774]: Filters
+              - button "Manage posts" [ref=e777] [cursor=pointer]:
+                - generic [ref=e778]:
+                  - img [ref=e779]
+                  - generic [ref=e783]: Manage posts
+          - tablist [ref=e785]:
+            - tab "List view" [selected] [ref=e787] [cursor=pointer]:
+              - generic [ref=e788]:
+                - img [ref=e790]
+                - generic [ref=e792]: List view
+            - tab "Grid view" [ref=e795] [cursor=pointer]:
+              - generic [ref=e796]:
+                - img [ref=e798]
+                - generic [ref=e800]: Grid view
+        - generic [ref=e802]:
+          - generic [ref=e814]:
+            - blockquote [ref=e816]:
+              - generic [ref=e817]: Facebook
+            - blockquote [ref=e819]:
+              - generic [ref=e820]: Facebook
+            - blockquote [ref=e822]:
+              - generic [ref=e823]: Facebook
+            - blockquote [ref=e825]:
+              - generic [ref=e826]: Facebook
+            - blockquote [ref=e828]:
+              - generic [ref=e829]: Facebook
+            - blockquote [ref=e831]:
+              - generic [ref=e832]: Facebook
+            - blockquote [ref=e834]:
+              - generic [ref=e835]: Facebook
+            - blockquote [ref=e837]:
+              - generic [ref=e838]: Facebook
+            - blockquote [ref=e840]:
+              - generic [ref=e841]: Facebook
+            - blockquote [ref=e843]:
+              - generic [ref=e844]: Facebook
+            - blockquote [ref=e846]:
+              - generic [ref=e847]: Facebook
+            - generic [ref=e850]:
+              - generic:
+                - blockquote [ref=e852]:
+                  - generic [ref=e853]: Facebook
+                - blockquote [ref=e855]:
+                  - generic [ref=e856]: Facebook
+                - blockquote [ref=e858]:
+                  - generic [ref=e859]: Facebook
+                - blockquote [ref=e861]:
+                  - generic [ref=e862]: Facebook
+                - blockquote [ref=e864]:
+                  - generic [ref=e865]: Facebook
+                - blockquote [ref=e867]:
+                  - generic [ref=e868]: Facebook
+                - blockquote [ref=e870]:
+                  - generic [ref=e871]: Facebook
+                - blockquote [ref=e873]:
+                  - generic [ref=e874]: Facebook
+                - blockquote [ref=e876]:
+                  - generic [ref=e877]: Facebook
+                - blockquote [ref=e879]:
+                  - generic [ref=e880]: Facebook
+                - blockquote [ref=e882]:
+                  - generic [ref=e883]: Facebook
+                - blockquote [ref=e885]:
+                  - generic [ref=e886]: Facebook
+                - blockquote [ref=e888]:
+                  - generic [ref=e889]: Facebook
+                - blockquote [ref=e891]:
+                  - generic [ref=e892]: Facebook
+                - blockquote [ref=e894]:
+                  - generic [ref=e895]: Facebook
+                - blockquote [ref=e897]:
+                  - generic [ref=e898]: Facebook
+                - blockquote [ref=e900]:
+                  - generic [ref=e901]: Facebook
+                - blockquote [ref=e903]:
+                  - generic [ref=e904]: Facebook
+                - blockquote [ref=e906]:
+                  - generic [ref=e907]: Facebook
+                - blockquote [ref=e909]:
+                  - generic [ref=e910]: Facebook
+                - blockquote [ref=e912]:
+                  - generic [ref=e913]: Facebook
+                - blockquote [ref=e915]:
+                  - generic [ref=e916]: Facebook
+              - generic [ref=e918]:
+                - heading "18 friends posted on your Profile for your birthday." [level=2] [ref=e924]:
+                  - generic [ref=e926]:
+                    - text: 18 friends posted on your
+                    - link "Profile" [ref=e932] [cursor=pointer]:
+                      - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-]C%2CP-R
+                    - text: for your birthday.
+                - button "Actions for this post" [ref=e935] [cursor=pointer]:
+                  - img [ref=e936]
+              - generic [ref=e940]:
+                - generic [ref=e943]:
+                  - generic [ref=e945]:
+                    - link "Amy Pang" [ref=e949] [cursor=pointer]:
+                      - /url: https://www.facebook.com/amy.pang.5?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=%3C%3C%2CP-y0.g-R
+                      - img "Amy Pang" [ref=e951]
+                    - generic [ref=e956]:
+                      - heading "Amy Pang posted to Yap Feng Yuan" [level=3] [ref=e960]:
+                        - generic [ref=e962]:
+                          - link "Amy Pang" [ref=e966] [cursor=pointer]:
+                            - /url: https://www.facebook.com/amy.pang.5?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-UC%2CP-y0.g-R
+                          - img "posted to" [ref=e968]
+                          - link "Yap Feng Yuan" [ref=e973] [cursor=pointer]:
+                            - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-UC%2CP-y0.g-R
+                      - generic [ref=e976]:
+                        - link "o e t d o p s n S r 1 2 e m r 5 l 3 5 b 7 2 3 t v a 9 , 7 1 8 3 5 i 0 2 f t c 5 g 0 o m 7 N 9 6 m e 1 2 6 m 0 g t 4" [ref=e979] [cursor=pointer]:
+                          - /url: "?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=%2CO%2CP-y0.g-R#?ahh"
+                          - generic [ref=e982]:
+                            - generic [ref=e983]: o
+                            - generic [ref=e984]: e
+                            - generic [ref=e985]: t
+                            - generic [ref=e986]: d
+                            - generic [ref=e987]: o
+                            - generic [ref=e988]: p
+                            - generic [ref=e989]: s
+                            - generic [ref=e990]: "n"
+                            - generic [ref=e991]: S
+                            - generic [ref=e992]: r
+                            - generic [ref=e993]: "1"
+                            - generic [ref=e994]: "2"
+                            - generic [ref=e995]: e
+                            - generic [ref=e996]: m
+                            - generic [ref=e997]: r
+                            - generic [ref=e998]: "5"
+                            - generic [ref=e999]: l
+                            - generic [ref=e1000]: "3"
+                            - generic [ref=e1001]: "5"
+                            - generic [ref=e1002]: b
+                            - generic [ref=e1003]: "7"
+                            - generic [ref=e1004]: "2"
+                            - generic [ref=e1005]: "3"
+                            - generic [ref=e1006]: t
+                            - generic [ref=e1007]: v
+                            - generic [ref=e1008]: a
+                            - generic [ref=e1009]: "9"
+                            - generic [ref=e1010]: ","
+                            - generic [ref=e1011]: "7"
+                            - generic [ref=e1012]: "1"
+                            - generic [ref=e1013]: "8"
+                            - generic [ref=e1014]: "3"
+                            - generic [ref=e1015]: "5"
+                            - generic [ref=e1016]: i
+                            - generic [ref=e1017]: "0"
+                            - generic [ref=e1018]: "2"
+                            - generic [ref=e1019]: f
+                            - generic [ref=e1020]: t
+                            - generic [ref=e1021]: c
+                            - generic [ref=e1022]: "5"
+                            - generic [ref=e1024]: g
+                            - generic [ref=e1025]: "0"
+                            - generic [ref=e1026]: o
+                            - generic [ref=e1028]: m
+                            - generic [ref=e1029]: "7"
+                            - generic [ref=e1030]: "N"
+                            - generic [ref=e1031]: "9"
+                            - generic [ref=e1032]: "6"
+                            - generic [ref=e1033]: m
+                            - generic [ref=e1034]: e
+                            - generic [ref=e1035]: "1"
+                            - generic [ref=e1036]: "2"
+                            - generic [ref=e1037]: "6"
+                            - generic [ref=e1038]: m
+                            - generic [ref=e1039]: "0"
+                            - generic [ref=e1040]: g
+                            - generic [ref=e1041]: t
+                            - generic [ref=e1042]: "4"
+                        - generic [ref=e1044]: ·
+                        - img "Shared with Your friends of friends" [ref=e1049]
+                    - button "Actions for this post" [ref=e1054] [cursor=pointer]:
+                      - img [ref=e1055]
+                  - generic [ref=e1058]:
+                    - generic [ref=e1065]:
+                      - text: Happy Birthday!
+                      - img "🌟" [ref=e1067]
+                      - img "🎉" [ref=e1069]
+                      - img "☕" [ref=e1071]
+                    - generic [ref=e1074]:
+                      - generic [ref=e1078]:
+                        - generic [ref=e1079]:
+                          - button "Like" [ref=e1080] [cursor=pointer]:
+                            - generic [ref=e1086]: Like
+                          - button "React" [ref=e1087] [cursor=pointer]:
+                            - img [ref=e1088]
+                        - button "Leave a comment" [ref=e1091] [cursor=pointer]:
+                          - generic [ref=e1096]: Comment
+                        - button "Send this to friends or post it on your profile." [ref=e1098] [cursor=pointer]:
+                          - generic [ref=e1103]: Share
+                      - generic [ref=e1109]:
+                        - button "Switch to a different profile or Page" [ref=e1111] [cursor=pointer]:
+                          - generic [ref=e1112]:
+                            - img [ref=e1113]
+                            - img [ref=e1120]
+                        - generic [ref=e1125]:
+                          - generic [ref=e1129]:
+                            - textbox "Comment as Yap Feng Yuan" [ref=e1130]:
+                              - paragraph [ref=e1131]
+                            - generic: Comment as Yap Feng Yuan
+                          - list [ref=e1133]:
+                            - listitem [ref=e1134]:
+                              - button "Comment with an avatar sticker" [ref=e1136] [cursor=pointer]
+                            - listitem [ref=e1138]:
+                              - button "Insert an emoji" [ref=e1140] [cursor=pointer]:
+                                - img [ref=e1141]
+                            - listitem [ref=e1144]:
+                              - button "Attach a photo or video" [ref=e1146] [cursor=pointer]
+                            - listitem [ref=e1148]:
+                              - button "Comment with a GIF" [ref=e1150] [cursor=pointer]
+                            - listitem [ref=e1152]:
+                              - button "Comment with a Sticker" [ref=e1154] [cursor=pointer]
+                - generic [ref=e1158]:
+                  - generic [ref=e1160]:
+                    - link "Lianty Lianty" [ref=e1164] [cursor=pointer]:
+                      - /url: https://www.facebook.com/lianty.chua?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=%3C%3C%2CP-y1.g-R
+                      - img "Lianty Lianty" [ref=e1166]
+                    - generic [ref=e1171]:
+                      - heading "Lianty Lianty posted to Yap Feng Yuan" [level=3] [ref=e1175]:
+                        - generic [ref=e1177]:
+                          - link "Lianty Lianty" [ref=e1181] [cursor=pointer]:
+                            - /url: https://www.facebook.com/lianty.chua?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-UC%2CP-y1.g-R
+                          - img "posted to" [ref=e1183]
+                          - link "Yap Feng Yuan" [ref=e1188] [cursor=pointer]:
+                            - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-UC%2CP-y1.g-R
+                      - generic [ref=e1191]:
+                        - link "o e t d o p s n S r 1 2 e m r 5 l 3 5 b 7 2 3 t v a 9 , 7 1 8 3 5 i 0 2 f t c 5 g 0 o m 7 N 9 6 m e 1 2 6 m 0 g t 4" [ref=e1194] [cursor=pointer]:
+                          - /url: "?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=%2CO%2CP-y1.g-R#?hcd"
+                          - generic [ref=e1197]:
+                            - generic [ref=e1198]: o
+                            - generic [ref=e1199]: e
+                            - generic [ref=e1200]: t
+                            - generic [ref=e1201]: d
+                            - generic [ref=e1202]: o
+                            - generic [ref=e1203]: p
+                            - generic [ref=e1204]: s
+                            - generic [ref=e1205]: "n"
+                            - generic [ref=e1206]: S
+                            - generic [ref=e1207]: r
+                            - generic [ref=e1208]: "1"
+                            - generic [ref=e1209]: "2"
+                            - generic [ref=e1210]: e
+                            - generic [ref=e1211]: m
+                            - generic [ref=e1212]: r
+                            - generic [ref=e1213]: "5"
+                            - generic [ref=e1214]: l
+                            - generic [ref=e1215]: "3"
+                            - generic [ref=e1216]: "5"
+                            - generic [ref=e1217]: b
+                            - generic [ref=e1218]: "7"
+                            - generic [ref=e1219]: "2"
+                            - generic [ref=e1220]: "3"
+                            - generic [ref=e1221]: t
+                            - generic [ref=e1222]: v
+                            - generic [ref=e1223]: a
+                            - generic [ref=e1224]: "9"
+                            - generic [ref=e1225]: ","
+                            - generic [ref=e1226]: "7"
+                            - generic [ref=e1227]: "1"
+                            - generic [ref=e1228]: "8"
+                            - generic [ref=e1229]: "3"
+                            - generic [ref=e1230]: "5"
+                            - generic [ref=e1231]: i
+                            - generic [ref=e1232]: "0"
+                            - generic [ref=e1233]: "2"
+                            - generic [ref=e1234]: f
+                            - generic [ref=e1235]: t
+                            - generic [ref=e1236]: c
+                            - generic [ref=e1237]: "5"
+                            - generic [ref=e1239]: g
+                            - generic [ref=e1240]: "0"
+                            - generic [ref=e1241]: o
+                            - generic [ref=e1243]: m
+                            - generic [ref=e1244]: "7"
+                            - generic [ref=e1245]: "N"
+                            - generic [ref=e1246]: "9"
+                            - generic [ref=e1247]: "6"
+                            - generic [ref=e1248]: m
+                            - generic [ref=e1249]: e
+                            - generic [ref=e1250]: "1"
+                            - generic [ref=e1251]: "2"
+                            - generic [ref=e1252]: "6"
+                            - generic [ref=e1253]: m
+                            - generic [ref=e1254]: "0"
+                            - generic [ref=e1255]: g
+                            - generic [ref=e1256]: t
+                            - generic [ref=e1257]: "4"
+                        - generic [ref=e1259]: ·
+                        - img "Shared with Your friends of friends" [ref=e1264]
+                    - button "Actions for this post" [ref=e1269] [cursor=pointer]:
+                      - img [ref=e1270]
+                  - generic [ref=e1273]:
+                    - generic [ref=e1280]:
+                      - text: Happy belated birthday
+                      - img "🎂" [ref=e1282]
+                    - generic [ref=e1285]:
+                      - generic [ref=e1289]:
+                        - generic [ref=e1290]:
+                          - button "Like" [ref=e1291] [cursor=pointer]:
+                            - generic [ref=e1297]: Like
+                          - button "React" [ref=e1298] [cursor=pointer]:
+                            - img [ref=e1299]
+                        - button "Leave a comment" [ref=e1302] [cursor=pointer]:
+                          - generic [ref=e1307]: Comment
+                        - button "Send this to friends or post it on your profile." [ref=e1309] [cursor=pointer]:
+                          - generic [ref=e1314]: Share
+                      - generic [ref=e1320]:
+                        - button "Switch to a different profile or Page" [ref=e1322] [cursor=pointer]:
+                          - generic [ref=e1323]:
+                            - img [ref=e1324]
+                            - img [ref=e1331]
+                        - generic [ref=e1336]:
+                          - generic [ref=e1340]:
+                            - textbox "Comment as Yap Feng Yuan" [ref=e1341]:
+                              - paragraph [ref=e1342]
+                            - generic: Comment as Yap Feng Yuan
+                          - list [ref=e1344]:
+                            - listitem [ref=e1345]:
+                              - button "Comment with an avatar sticker" [ref=e1347] [cursor=pointer]
+                            - listitem [ref=e1349]:
+                              - button "Insert an emoji" [ref=e1351] [cursor=pointer]:
+                                - img [ref=e1352]
+                            - listitem [ref=e1355]:
+                              - button "Attach a photo or video" [ref=e1357] [cursor=pointer]
+                            - listitem [ref=e1359]:
+                              - button "Comment with a GIF" [ref=e1361] [cursor=pointer]
+                            - listitem [ref=e1363]:
+                              - button "Comment with a Sticker" [ref=e1365] [cursor=pointer]
+                - generic [ref=e1369]:
+                  - generic [ref=e1371]:
+                    - link "Kris Lim" [ref=e1375] [cursor=pointer]:
+                      - /url: https://www.facebook.com/xxKrislimxx?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=%3C%3C%2CP-y2.g-R
+                      - img "Kris Lim" [ref=e1377]
+                    - generic [ref=e1382]:
+                      - heading "Kris Lim posted to Yap Feng Yuan" [level=3] [ref=e1386]:
+                        - generic [ref=e1388]:
+                          - link "Kris Lim" [ref=e1392] [cursor=pointer]:
+                            - /url: https://www.facebook.com/xxKrislimxx?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-UC%2CP-y2.g-R
+                          - img "posted to" [ref=e1394]
+                          - link "Yap Feng Yuan" [ref=e1399] [cursor=pointer]:
+                            - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=-UC%2CP-y2.g-R
+                      - generic [ref=e1402]:
+                        - link "o e t d o p s n S r 1 2 e m r 5 l 3 5 b 7 2 3 t v a 9 , 5 1 8 3 5 i 0 2 f t c 5 g 0 o m 7 N 9 6 m e 1 2 6 m 0 g t 4" [ref=e1405] [cursor=pointer]:
+                          - /url: "?__cft__[0]=AZbj5gY2Y6p_ZxUj3HpOS4ejXA09sWUlFBcCQTVKtbcpF9-YFfvNw-CVtvRjg-5KuvfQzznXtrLDCmNyWCBl41W8nLWJvQlu8gL26o3EAq3Hamf-fJyvy5KX1PkaOnMnRxvFYiQXjOEtue0bd4aJQXTxYjZgvjGb55lLZhWqNKu3-F_rLC1fZsl4mXiCG7FX7RE&__tn__=%2CO%2CP-y2.g-R#?aaj"
+                          - generic [ref=e1408]:
+                            - generic [ref=e1409]: o
+                            - generic [ref=e1410]: e
+                            - generic [ref=e1411]: t
+                            - generic [ref=e1412]: d
+                            - generic [ref=e1413]: o
+                            - generic [ref=e1414]: p
+                            - generic [ref=e1415]: s
+                            - generic [ref=e1416]: "n"
+                            - generic [ref=e1417]: S
+                            - generic [ref=e1418]: r
+                            - generic [ref=e1419]: "1"
+                            - generic [ref=e1420]: "2"
+                            - generic [ref=e1421]: e
+                            - generic [ref=e1422]: m
+                            - generic [ref=e1423]: r
+                            - generic [ref=e1424]: "5"
+                            - generic [ref=e1425]: l
+                            - generic [ref=e1426]: "3"
+                            - generic [ref=e1427]: "5"
+                            - generic [ref=e1428]: b
+                            - generic [ref=e1429]: "7"
+                            - generic [ref=e1430]: "2"
+                            - generic [ref=e1431]: "3"
+                            - generic [ref=e1432]: t
+                            - generic [ref=e1433]: v
+                            - generic [ref=e1434]: a
+                            - generic [ref=e1435]: "9"
+                            - generic [ref=e1436]: ","
+                            - generic [ref=e1437]: "5"
+                            - generic [ref=e1438]: "1"
+                            - generic [ref=e1439]: "8"
+                            - generic [ref=e1440]: "3"
+                            - generic [ref=e1441]: "5"
+                            - generic [ref=e1442]: i
+                            - generic [ref=e1443]: "0"
+                            - generic [ref=e1444]: "2"
+                            - generic [ref=e1445]: f
+                            - generic [ref=e1446]: t
+                            - generic [ref=e1447]: c
+                            - generic [ref=e1448]: "5"
+                            - generic [ref=e1450]: g
+                            - generic [ref=e1451]: "0"
+                            - generic [ref=e1452]: o
+                            - generic [ref=e1454]: m
+                            - generic [ref=e1455]: "7"
+                            - generic [ref=e1456]: "N"
+                            - generic [ref=e1457]: "9"
+                            - generic [ref=e1458]: "6"
+                            - generic [ref=e1459]: m
+                            - generic [ref=e1460]: e
+                            - generic [ref=e1461]: "1"
+                            - generic [ref=e1462]: "2"
+                            - generic [ref=e1463]: "6"
+                            - generic [ref=e1464]: m
+                            - generic [ref=e1465]: "0"
+                            - generic [ref=e1466]: g
+                            - generic [ref=e1467]: t
+                            - generic [ref=e1468]: "4"
+                        - generic [ref=e1470]: ·
+                        - img "Shared with Your friends of friends" [ref=e1475]
+                    - button "Actions for this post" [ref=e1480] [cursor=pointer]:
+                      - img [ref=e1481]
+                  - generic [ref=e1484]:
+                    - generic [ref=e1491]:
+                      - text: Happy Birthday!
+                      - img "🎁" [ref=e1493]
+                      - img "🎊" [ref=e1495]
+                      - img "🌟" [ref=e1497]
+                    - generic [ref=e1500]:
+                      - generic [ref=e1504]:
+                        - generic [ref=e1505]:
+                          - button "Like" [ref=e1506] [cursor=pointer]:
+                            - generic [ref=e1512]: Like
+                          - button "React" [ref=e1513] [cursor=pointer]:
+                            - img [ref=e1514]
+                        - button "Leave a comment" [ref=e1517] [cursor=pointer]:
+                          - generic [ref=e1522]: Comment
+                        - button "Send this to friends or post it on your profile." [ref=e1524] [cursor=pointer]:
+                          - generic [ref=e1529]: Share
+                      - generic [ref=e1535]:
+                        - button "Switch to a different profile or Page" [ref=e1537] [cursor=pointer]:
+                          - generic [ref=e1538]:
+                            - img [ref=e1539]
+                            - img [ref=e1546]
+                        - generic [ref=e1551]:
+                          - generic [ref=e1555]:
+                            - textbox "Comment as Yap Feng Yuan" [ref=e1556]:
+                              - paragraph [ref=e1557]
+                            - generic: Comment as Yap Feng Yuan
+                          - list [ref=e1559]:
+                            - listitem [ref=e1560]:
+                              - button "Comment with an avatar sticker" [ref=e1562] [cursor=pointer]
+                            - listitem [ref=e1564]:
+                              - button "Insert an emoji" [ref=e1566] [cursor=pointer]:
+                                - img [ref=e1567]
+                            - listitem [ref=e1570]:
+                              - button "Attach a photo or video" [ref=e1572] [cursor=pointer]
+                            - listitem [ref=e1574]:
+                              - button "Comment with a GIF" [ref=e1576] [cursor=pointer]
+                            - listitem [ref=e1578]:
+                              - button "Comment with a Sticker" [ref=e1580] [cursor=pointer]
+                - button "See 17 More" [ref=e1583] [cursor=pointer]:
+                  - generic [ref=e1586]: See 17 More
+            - blockquote [ref=e1588]:
+              - generic [ref=e1589]: Facebook
+            - blockquote [ref=e1591]:
+              - generic [ref=e1592]: Facebook
+            - blockquote [ref=e1594]:
+              - generic [ref=e1595]: Facebook
+            - blockquote [ref=e1597]:
+              - generic [ref=e1598]: Facebook
+            - blockquote [ref=e1600]:
+              - generic [ref=e1601]: Facebook
+            - blockquote [ref=e1603]:
+              - generic [ref=e1604]: Facebook
+            - blockquote [ref=e1606]:
+              - generic [ref=e1607]: Facebook
+            - blockquote [ref=e1609]:
+              - generic [ref=e1610]: Facebook
+            - blockquote [ref=e1612]:
+              - generic [ref=e1613]: Facebook
+            - blockquote [ref=e1615]:
+              - generic [ref=e1616]: Facebook
+            - blockquote [ref=e1618]:
+              - generic [ref=e1619]: Facebook
+          - generic [ref=e1631]:
+            - blockquote [ref=e1633]:
+              - generic [ref=e1634]: Facebook
+            - blockquote [ref=e1636]:
+              - generic [ref=e1637]: Facebook
+            - blockquote [ref=e1639]:
+              - generic [ref=e1640]: Facebook
+            - blockquote [ref=e1642]:
+              - generic [ref=e1643]: Facebook
+            - blockquote [ref=e1645]:
+              - generic [ref=e1646]: Facebook
+            - blockquote [ref=e1648]:
+              - generic [ref=e1649]: Facebook
+            - blockquote [ref=e1651]:
+              - generic [ref=e1652]: Facebook
+            - blockquote [ref=e1654]:
+              - generic [ref=e1655]: Facebook
+            - blockquote [ref=e1657]:
+              - generic [ref=e1658]: Facebook
+            - blockquote [ref=e1660]:
+              - generic [ref=e1661]: Facebook
+            - blockquote [ref=e1663]:
+              - generic [ref=e1664]: Facebook
+            - generic [ref=e1667]:
+              - generic:
+                - blockquote [ref=e1669]:
+                  - generic [ref=e1670]: Facebook
+                - blockquote [ref=e1672]:
+                  - generic [ref=e1673]: Facebook
+                - blockquote [ref=e1675]:
+                  - generic [ref=e1676]: Facebook
+                - blockquote [ref=e1678]:
+                  - generic [ref=e1679]: Facebook
+                - blockquote [ref=e1681]:
+                  - generic [ref=e1682]: Facebook
+                - blockquote [ref=e1684]:
+                  - generic [ref=e1685]: Facebook
+                - blockquote [ref=e1687]:
+                  - generic [ref=e1688]: Facebook
+                - blockquote [ref=e1690]:
+                  - generic [ref=e1691]: Facebook
+                - blockquote [ref=e1693]:
+                  - generic [ref=e1694]: Facebook
+                - blockquote [ref=e1696]:
+                  - generic [ref=e1697]: Facebook
+                - blockquote [ref=e1699]:
+                  - generic [ref=e1700]: Facebook
+                - blockquote [ref=e1702]:
+                  - generic [ref=e1703]: Facebook
+                - blockquote [ref=e1705]:
+                  - generic [ref=e1706]: Facebook
+                - blockquote [ref=e1708]:
+                  - generic [ref=e1709]: Facebook
+                - blockquote [ref=e1711]:
+                  - generic [ref=e1712]: Facebook
+                - blockquote [ref=e1714]:
+                  - generic [ref=e1715]: Facebook
+                - blockquote [ref=e1717]:
+                  - generic [ref=e1718]: Facebook
+                - blockquote [ref=e1720]:
+                  - generic [ref=e1721]: Facebook
+                - blockquote [ref=e1723]:
+                  - generic [ref=e1724]: Facebook
+                - blockquote [ref=e1726]:
+                  - generic [ref=e1727]: Facebook
+                - blockquote [ref=e1729]:
+                  - generic [ref=e1730]: Facebook
+                - blockquote [ref=e1732]:
+                  - generic [ref=e1733]: Facebook
+              - generic [ref=e1735]:
+                - heading "23 friends posted on your Profile for your birthday." [level=2] [ref=e1741]:
+                  - generic [ref=e1743]:
+                    - text: 23 friends posted on your
+                    - link "Profile" [ref=e1749] [cursor=pointer]:
+                      - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-]C%2CP-R
+                    - text: for your birthday.
+                - button "Actions for this post" [ref=e1752] [cursor=pointer]:
+                  - img [ref=e1753]
+              - generic [ref=e1757]:
+                - generic [ref=e1760]:
+                  - generic [ref=e1762]:
+                    - link "Yassine Sabek" [ref=e1766] [cursor=pointer]:
+                      - /url: https://www.facebook.com/yassine.sabek?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=%3C%3C%2CP-y0.g-R
+                      - img "Yassine Sabek" [ref=e1768]
+                    - generic [ref=e1773]:
+                      - heading "Yassine Sabek posted to Yap Feng Yuan" [level=3] [ref=e1777]:
+                        - generic [ref=e1779]:
+                          - link "Yassine Sabek" [ref=e1783] [cursor=pointer]:
+                            - /url: https://www.facebook.com/yassine.sabek?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-UC%2CP-y0.g-R
+                          - img "posted to" [ref=e1785]
+                          - link "Yap Feng Yuan" [ref=e1790] [cursor=pointer]:
+                            - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-UC%2CP-y0.g-R
+                      - generic [ref=e1793]:
+                        - link "r n o e t o p d S s 3 u 8 l 3 c f h m 2 , i 6 2 e i 7 0 o a l g 3 6 t a 1 5 2 2 v 4 a 0 N t e 2 u 1 1 8 2 m 2 b 1 r" [ref=e1796] [cursor=pointer]:
+                          - /url: "?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=%2CO%2CP-y0.g-R#?kkb"
+                          - generic [ref=e1799]:
+                            - generic [ref=e1800]: r
+                            - generic [ref=e1801]: "n"
+                            - generic [ref=e1802]: o
+                            - generic [ref=e1803]: e
+                            - generic [ref=e1804]: t
+                            - generic [ref=e1805]: o
+                            - generic [ref=e1806]: p
+                            - generic [ref=e1807]: d
+                            - generic [ref=e1808]: S
+                            - generic [ref=e1809]: s
+                            - generic [ref=e1810]: "3"
+                            - generic [ref=e1811]: u
+                            - generic [ref=e1812]: "8"
+                            - generic [ref=e1813]: l
+                            - generic [ref=e1814]: "3"
+                            - generic [ref=e1815]: c
+                            - generic [ref=e1816]: f
+                            - generic [ref=e1817]: h
+                            - generic [ref=e1818]: m
+                            - generic [ref=e1819]: "2"
+                            - generic [ref=e1820]: ","
+                            - generic [ref=e1821]: i
+                            - generic [ref=e1822]: "6"
+                            - generic [ref=e1823]: "2"
+                            - generic [ref=e1824]: e
+                            - generic [ref=e1825]: i
+                            - generic [ref=e1826]: "7"
+                            - generic [ref=e1827]: "0"
+                            - generic [ref=e1828]: o
+                            - generic [ref=e1829]: a
+                            - generic [ref=e1830]: l
+                            - generic [ref=e1831]: g
+                            - generic [ref=e1832]: "3"
+                            - generic [ref=e1833]: "6"
+                            - generic [ref=e1834]: t
+                            - generic [ref=e1835]: a
+                            - generic [ref=e1836]: "1"
+                            - generic [ref=e1837]: "5"
+                            - generic [ref=e1838]: "2"
+                            - generic [ref=e1839]: "2"
+                            - generic [ref=e1841]: v
+                            - generic [ref=e1842]: "4"
+                            - generic [ref=e1843]: a
+                            - generic [ref=e1844]: "0"
+                            - generic [ref=e1845]: "N"
+                            - generic [ref=e1846]: t
+                            - generic [ref=e1847]: e
+                            - generic [ref=e1848]: "2"
+                            - generic [ref=e1849]: u
+                            - generic [ref=e1850]: "1"
+                            - generic [ref=e1851]: "1"
+                            - generic [ref=e1852]: "8"
+                            - generic [ref=e1853]: "2"
+                            - generic [ref=e1854]: m
+                            - generic [ref=e1855]: "2"
+                            - generic [ref=e1856]: b
+                            - generic [ref=e1858]: "1"
+                            - generic [ref=e1859]: r
+                        - generic [ref=e1861]: ·
+                        - img "Shared with Your friends of friends" [ref=e1866]
+                    - button "Actions for this post" [ref=e1871] [cursor=pointer]:
+                      - img [ref=e1872]
+                  - generic [ref=e1875]:
+                    - generic [ref=e1882]:
+                      - text: Happy Birthday, Yap!
+                      - img "🥳" [ref=e1884]
+                      - img "🎈" [ref=e1886]
+                      - img "🎉" [ref=e1888]
+                    - generic [ref=e1891]:
+                      - generic [ref=e1895]:
+                        - generic [ref=e1896]:
+                          - button "Like" [ref=e1897] [cursor=pointer]:
+                            - generic [ref=e1903]: Like
+                          - button "React" [ref=e1904] [cursor=pointer]:
+                            - img [ref=e1905]
+                        - button "Leave a comment" [ref=e1908] [cursor=pointer]:
+                          - generic [ref=e1913]: Comment
+                        - button "Send this to friends or post it on your profile." [ref=e1915] [cursor=pointer]:
+                          - generic [ref=e1920]: Share
+                      - generic [ref=e1926]:
+                        - button "Switch to a different profile or Page" [ref=e1928] [cursor=pointer]:
+                          - generic [ref=e1929]:
+                            - img [ref=e1930]
+                            - img [ref=e1937]
+                        - generic [ref=e1942]:
+                          - generic [ref=e1946]:
+                            - textbox "Comment as Yap Feng Yuan" [ref=e1947]:
+                              - paragraph [ref=e1948]
+                            - generic: Comment as Yap Feng Yuan
+                          - list [ref=e1950]:
+                            - listitem [ref=e1951]:
+                              - button "Comment with an avatar sticker" [ref=e1953] [cursor=pointer]
+                            - listitem [ref=e1955]:
+                              - button "Insert an emoji" [ref=e1957] [cursor=pointer]:
+                                - img [ref=e1958]
+                            - listitem [ref=e1961]:
+                              - button "Attach a photo or video" [ref=e1963] [cursor=pointer]
+                            - listitem [ref=e1965]:
+                              - button "Comment with a GIF" [ref=e1967] [cursor=pointer]
+                            - listitem [ref=e1969]:
+                              - button "Comment with a Sticker" [ref=e1971] [cursor=pointer]
+                - generic [ref=e1975]:
+                  - generic [ref=e1977]:
+                    - link "李顺兴" [ref=e1981] [cursor=pointer]:
+                      - /url: https://www.facebook.com/li.shun.xing.437436?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=%3C%3C%2CP-y1.g-R
+                      - img "李顺兴" [ref=e1983]
+                    - generic [ref=e1988]:
+                      - heading "李顺兴 posted to Yap Feng Yuan" [level=3] [ref=e1992]:
+                        - generic [ref=e1994]:
+                          - link "李顺兴" [ref=e1998] [cursor=pointer]:
+                            - /url: https://www.facebook.com/li.shun.xing.437436?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-UC%2CP-y1.g-R
+                          - img "posted to" [ref=e2000]
+                          - link "Yap Feng Yuan" [ref=e2005] [cursor=pointer]:
+                            - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-UC%2CP-y1.g-R
+                      - generic [ref=e2008]:
+                        - link "r n o e t o p d S s 3 u 7 l 3 c f h m 2 , i 6 2 e i 7 0 o a l g 3 6 t a 1 5 2 2 v 4 a 0 N t e 2 u 1 1 8 2 m 2 b 1 r" [ref=e2011] [cursor=pointer]:
+                          - /url: "?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=%2CO%2CP-y1.g-R#?fgh"
+                          - generic [ref=e2014]:
+                            - generic [ref=e2015]: r
+                            - generic [ref=e2016]: "n"
+                            - generic [ref=e2017]: o
+                            - generic [ref=e2018]: e
+                            - generic [ref=e2019]: t
+                            - generic [ref=e2020]: o
+                            - generic [ref=e2021]: p
+                            - generic [ref=e2022]: d
+                            - generic [ref=e2023]: S
+                            - generic [ref=e2024]: s
+                            - generic [ref=e2025]: "3"
+                            - generic [ref=e2026]: u
+                            - generic [ref=e2027]: "7"
+                            - generic [ref=e2028]: l
+                            - generic [ref=e2029]: "3"
+                            - generic [ref=e2030]: c
+                            - generic [ref=e2031]: f
+                            - generic [ref=e2032]: h
+                            - generic [ref=e2033]: m
+                            - generic [ref=e2034]: "2"
+                            - generic [ref=e2035]: ","
+                            - generic [ref=e2036]: i
+                            - generic [ref=e2037]: "6"
+                            - generic [ref=e2038]: "2"
+                            - generic [ref=e2039]: e
+                            - generic [ref=e2040]: i
+                            - generic [ref=e2041]: "7"
+                            - generic [ref=e2042]: "0"
+                            - generic [ref=e2043]: o
+                            - generic [ref=e2044]: a
+                            - generic [ref=e2045]: l
+                            - generic [ref=e2046]: g
+                            - generic [ref=e2047]: "3"
+                            - generic [ref=e2048]: "6"
+                            - generic [ref=e2049]: t
+                            - generic [ref=e2050]: a
+                            - generic [ref=e2051]: "1"
+                            - generic [ref=e2052]: "5"
+                            - generic [ref=e2053]: "2"
+                            - generic [ref=e2054]: "2"
+                            - generic [ref=e2056]: v
+                            - generic [ref=e2057]: "4"
+                            - generic [ref=e2058]: a
+                            - generic [ref=e2059]: "0"
+                            - generic [ref=e2060]: "N"
+                            - generic [ref=e2061]: t
+                            - generic [ref=e2062]: e
+                            - generic [ref=e2063]: "2"
+                            - generic [ref=e2064]: u
+                            - generic [ref=e2065]: "1"
+                            - generic [ref=e2066]: "1"
+                            - generic [ref=e2067]: "8"
+                            - generic [ref=e2068]: "2"
+                            - generic [ref=e2069]: m
+                            - generic [ref=e2070]: "2"
+                            - generic [ref=e2071]: b
+                            - generic [ref=e2073]: "1"
+                            - generic [ref=e2074]: r
+                        - generic [ref=e2076]: ·
+                        - img "Shared with Your friends of friends" [ref=e2081]
+                    - button "Actions for this post" [ref=e2086] [cursor=pointer]:
+                      - img [ref=e2087]
+                  - generic [ref=e2090]:
+                    - generic [ref=e2097]:
+                      - text: Yap Feng Yuan，生日快乐！
+                      - img "🥳" [ref=e2099]
+                      - img "🎈" [ref=e2101]
+                      - img "🎉" [ref=e2103]
+                    - generic [ref=e2106]:
+                      - generic [ref=e2110]:
+                        - generic [ref=e2111]:
+                          - button "Like" [ref=e2112] [cursor=pointer]:
+                            - generic [ref=e2118]: Like
+                          - button "React" [ref=e2119] [cursor=pointer]:
+                            - img [ref=e2120]
+                        - button "Leave a comment" [ref=e2123] [cursor=pointer]:
+                          - generic [ref=e2128]: Comment
+                        - button "Send this to friends or post it on your profile." [ref=e2130] [cursor=pointer]:
+                          - generic [ref=e2135]: Share
+                      - generic [ref=e2141]:
+                        - button "Switch to a different profile or Page" [ref=e2143] [cursor=pointer]:
+                          - generic [ref=e2144]:
+                            - img [ref=e2145]
+                            - img [ref=e2152]
+                        - generic [ref=e2157]:
+                          - generic [ref=e2161]:
+                            - textbox "Comment as Yap Feng Yuan" [ref=e2162]:
+                              - paragraph [ref=e2163]
+                            - generic: Comment as Yap Feng Yuan
+                          - list [ref=e2165]:
+                            - listitem [ref=e2166]:
+                              - button "Comment with an avatar sticker" [ref=e2168] [cursor=pointer]
+                            - listitem [ref=e2170]:
+                              - button "Insert an emoji" [ref=e2172] [cursor=pointer]:
+                                - img [ref=e2173]
+                            - listitem [ref=e2176]:
+                              - button "Attach a photo or video" [ref=e2178] [cursor=pointer]
+                            - listitem [ref=e2180]:
+                              - button "Comment with a GIF" [ref=e2182] [cursor=pointer]
+                            - listitem [ref=e2184]:
+                              - button "Comment with a Sticker" [ref=e2186] [cursor=pointer]
+                - generic [ref=e2190]:
+                  - generic [ref=e2192]:
+                    - link "Ah Wai, view story" [ref=e2196] [cursor=pointer]:
+                      - /url: /stories/2415706718445576/UzpfSVNDOjEzMTE5NTUyMDQxNDU0NTU=/?view_single=false&__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=%3C%3C%2CP-y2.g-R
+                      - generic [ref=e2197]:
+                        - img "Ah Wai, view story" [ref=e2198]
+                        - generic [ref=e2204]:
+                          - generic [ref=e2207]: Online status indicator
+                          - generic [ref=e2208]: Active
+                    - generic [ref=e2210]:
+                      - heading "Ah Wai posted to Yap Feng Yuan" [level=3] [ref=e2214]:
+                        - generic [ref=e2216]:
+                          - link "Ah Wai" [ref=e2220] [cursor=pointer]:
+                            - /url: https://www.facebook.com/yap.cheewee.9?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-UC%2CP-y2.g-R
+                          - img "posted to" [ref=e2222]
+                          - link "Yap Feng Yuan" [ref=e2227] [cursor=pointer]:
+                            - /url: https://www.facebook.com/fengyuan.yap?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=-UC%2CP-y2.g-R
+                      - generic [ref=e2230]:
+                        - link "r n o e t o p d S s 3 u 6 l 3 c f h m 2 , i 6 2 e i 7 0 o a l g 3 6 t a 1 5 2 2 v 4 a 0 N t e 2 u 1 1 8 2 m 2 b 1 r" [ref=e2233] [cursor=pointer]:
+                          - /url: "?__cft__[0]=AZazbbIbhqBQ5V0FVv9U1_5dqRPp2vxtgR4gcO-9XWPYxRGXIRpCdzHaIT1aj8HulvNP30NHwnBx7yf6gR2HTL6RFDhCb_dZdOaArtSS6n2crzOjbipafOZuOwPMudp1Dt-ti5qCvMk99imt__WmAIqPRrJQetdggRu0p7gPTpmA0g&__tn__=%2CO%2CP-y2.g-R#?keg"
+                          - generic [ref=e2236]:
+                            - generic [ref=e2237]: r
+                            - generic [ref=e2238]: "n"
+                            - generic [ref=e2239]: o
+                            - generic [ref=e2240]: e
+                            - generic [ref=e2241]: t
+                            - generic [ref=e2242]: o
+                            - generic [ref=e2243]: p
+                            - generic [ref=e2244]: d
+                            - generic [ref=e2245]: S
+                            - generic [ref=e2246]: s
+                            - generic [ref=e2247]: "3"
+                            - generic [ref=e2248]: u
+                            - generic [ref=e2249]: "6"
+                            - generic [ref=e2250]: l
+                            - generic [ref=e2251]: "3"
+                            - generic [ref=e2252]: c
+                            - generic [ref=e2253]: f
+                            - generic [ref=e2254]: h
+                            - generic [ref=e2255]: m
+                            - generic [ref=e2256]: "2"
+                            - generic [ref=e2257]: ","
+                            - generic [ref=e2258]: i
+                            - generic [ref=e2259]: "6"
+                            - generic [ref=e2260]: "2"
+                            - generic [ref=e2261]: e
+                            - generic [ref=e2262]: i
+                            - generic [ref=e2263]: "7"
+                            - generic [ref=e2264]: "0"
+                            - generic [ref=e2265]: o
+                            - generic [ref=e2266]: a
+                            - generic [ref=e2267]: l
+                            - generic [ref=e2268]: g
+                            - generic [ref=e2269]: "3"
+                            - generic [ref=e2270]: "6"
+                            - generic [ref=e2271]: t
+                            - generic [ref=e2272]: a
+                            - generic [ref=e2273]: "1"
+                            - generic [ref=e2274]: "5"
+                            - generic [ref=e2275]: "2"
+                            - generic [ref=e2276]: "2"
+                            - generic [ref=e2278]: v
+                            - generic [ref=e2279]: "4"
+                            - generic [ref=e2280]: a
+                            - generic [ref=e2281]: "0"
+                            - generic [ref=e2282]: "N"
+                            - generic [ref=e2283]: t
+                            - generic [ref=e2284]: e
+                            - generic [ref=e2285]: "2"
+                            - generic [ref=e2286]: u
+                            - generic [ref=e2287]: "1"
+                            - generic [ref=e2288]: "1"
+                            - generic [ref=e2289]: "8"
+                            - generic [ref=e2290]: "2"
+                            - generic [ref=e2291]: m
+                            - generic [ref=e2292]: "2"
+                            - generic [ref=e2293]: b
+                            - generic [ref=e2295]: "1"
+                            - generic [ref=e2296]: r
+                        - generic [ref=e2298]: ·
+                        - img "Shared with Your friends of friends" [ref=e2303]
+                    - button "Actions for this post" [ref=e2308] [cursor=pointer]:
+                      - img [ref=e2309]
+                  - generic [ref=e2312]:
+                    - generic [ref=e2319]:
+                      - text: Happy Birthday, Yap!
+                      - img "🥳" [ref=e2321]
+                      - img "🎈" [ref=e2323]
+                      - img "🎉" [ref=e2325]
+                    - generic [ref=e2330]:
+                      - generic [ref=e2332]:
+                        - generic [ref=e2333]:
+                          - toolbar "See who reacted to this" [ref=e2334]:
+                            - 'button "Like: 1 person" [ref=e2339] [cursor=pointer]'
+                          - 'button "All reactions: Dato Alex Hwa" [ref=e2341] [cursor=pointer]':
+                            - generic [ref=e2342]: "All reactions:"
+                            - generic [ref=e2344]: "1"
+                            - generic [ref=e2346]: Dato Alex Hwa
+                        - button "1 comment" [ref=e2351] [cursor=pointer]:
+                          - generic [ref=e2352]: 1 comment
+                      - generic [ref=e2354]:
+                        - generic [ref=e2355]:
+                          - button "Like" [ref=e2356] [cursor=pointer]:
+                            - generic [ref=e2362]: Like
+                          - button "React" [ref=e2363] [cursor=pointer]:
+                            - img [ref=e2364]
+                        - button "Leave a comment" [ref=e2367] [cursor=pointer]:
+                          - generic [ref=e2372]: Comment
+                        - button "Send this to friends or post it on your profile." [ref=e2374] [cursor=pointer]:
+                          - generic [ref=e2379]: Share
+                - button "See 22 More" [ref=e2381] [cursor=pointer]:
+                  - generic [ref=e2384]: See 22 More
+            - blockquote [ref=e2386]:
+              - generic [ref=e2387]: Facebook
+            - blockquote [ref=e2389]:
+              - generic [ref=e2390]: Facebook
+            - blockquote [ref=e2392]:
+              - generic [ref=e2393]: Facebook
+            - blockquote [ref=e2395]:
+              - generic [ref=e2396]: Facebook
+            - blockquote [ref=e2398]:
+              - generic [ref=e2399]: Facebook
+            - blockquote [ref=e2401]:
+              - generic [ref=e2402]: Facebook
+            - blockquote [ref=e2404]:
+              - generic [ref=e2405]: Facebook
+            - blockquote [ref=e2407]:
+              - generic [ref=e2408]: Facebook
+            - blockquote [ref=e2410]:
+              - generic [ref=e2411]: Facebook
+            - blockquote [ref=e2413]:
+              - generic [ref=e2414]: Facebook
+            - blockquote [ref=e2416]:
+              - generic [ref=e2417]: Facebook
+          - generic [ref=e2419]:
+            - article [ref=e2420]:
+              - status "Loading..." [ref=e2421]
+            - article [ref=e2433]:
+              - status "Loading..." [ref=e2434]
+  - button "New message" [ref=e2448] [cursor=pointer]:
+    - img [ref=e2449]

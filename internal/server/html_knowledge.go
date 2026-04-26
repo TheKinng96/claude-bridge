@@ -92,6 +92,16 @@ const knowledgeHTML = `<!DOCTYPE html>
 				<option value="claude-opus-4-7">Opus 4.7 (expensive)</option>
 			</select>
 		</div>
+		<div class="form-row">
+			<label for="classifyDelay">Delay between classifications (seconds)</label>
+			<input type="number" id="classifyDelay" min="1" max="300" placeholder="10" style="width:100px;">
+			<span style="color:var(--text-dim);font-size:13px;margin-left:8px;">Default: 10s — prevents token burn on large folders</span>
+		</div>
+		<div class="form-row">
+			<label for="sessionLimit">Max new files per startup</label>
+			<input type="number" id="sessionLimit" min="1" max="1000" placeholder="20" style="width:100px;">
+			<span style="color:var(--text-dim);font-size:13px;margin-left:8px;">Default: 20 — use Rescan to classify more</span>
+		</div>
 		<div class="actions-row">
 			<button class="btn btn-primary" onclick="saveConfig()">Save</button>
 			<button class="btn btn-outline" onclick="loadAll()">Reload</button>
@@ -151,6 +161,8 @@ async function loadConfig() {
 		const j = await r.json();
 		document.getElementById('folderPath').value = j.folder_path || '';
 		document.getElementById('model').value = j.model || 'claude-haiku-4-5';
+		document.getElementById('classifyDelay').value = j.classify_delay_sec || 10;
+		document.getElementById('sessionLimit').value = j.session_limit || 20;
 		document.getElementById('statCalls').textContent = j.api_calls || 0;
 		const banners = document.getElementById('banners');
 		banners.innerHTML = '';
@@ -164,6 +176,8 @@ async function saveConfig() {
 	const body = {
 		folder_path: document.getElementById('folderPath').value.trim(),
 		model: document.getElementById('model').value,
+		classify_delay_sec: parseInt(document.getElementById('classifyDelay').value) || 10,
+		session_limit: parseInt(document.getElementById('sessionLimit').value) || 20,
 	};
 	const r = await fetch('/api/knowledge/config', {
 		method: 'POST',
