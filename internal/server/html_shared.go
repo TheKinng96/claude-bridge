@@ -226,7 +226,35 @@ const sharedJS = `
   document.addEventListener('DOMContentLoaded', function() {
     var theme = localStorage.getItem('crm-theme') || 'dark';
     updateToggleIcon(theme);
+    initUpdateBanner();
   });
+
+  function initUpdateBanner() {
+    var banner = document.createElement('div');
+    banner.id = 'updateBanner';
+    banner.style.cssText = 'display:none;background:#d97706;color:#fff;text-align:center;padding:10px 16px;font-size:14px;';
+    banner.innerHTML = '⚠️ New version downloaded. <button onclick="restartApp()" style="margin-left:12px;padding:4px 12px;background:#fff;color:#d97706;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Restart now</button><button onclick="dismissUpdate()" style="margin-left:8px;padding:4px 10px;background:transparent;color:#fff;border:1px solid #fff;border-radius:4px;cursor:pointer;">Later</button>';
+    document.body.insertBefore(banner, document.body.firstChild);
+    checkUpdateStatus();
+    setInterval(checkUpdateStatus, 60000);
+  }
+
+  function checkUpdateStatus() {
+    fetch('/api/update/status').then(function(r){ return r.json(); }).then(function(j){
+      if (j.ready) document.getElementById('updateBanner').style.display = 'block';
+    }).catch(function(){});
+  }
+
+  window.restartApp = function() {
+    if (!confirm('Restart Claude Bridge to apply the update?')) return;
+    fetch('/api/update/restart', {method:'POST'}).then(function(){
+      setTimeout(function(){ location.reload(); }, 3000);
+    });
+  };
+
+  window.dismissUpdate = function() {
+    document.getElementById('updateBanner').style.display = 'none';
+  };
 })();
 `
 

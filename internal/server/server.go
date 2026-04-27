@@ -1,17 +1,17 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"context"
 
 	"claude-bridge/internal/batch"
 	"claude-bridge/internal/browser"
@@ -35,6 +35,7 @@ type Server struct {
 	knowWatcher   *knowledge.Watcher
 	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
 	agentRunner   agentRunner
+	updateReady   bool
 	port          int
 	listener      net.Listener
 	tlsListener   net.Listener
@@ -65,6 +66,34 @@ func (s *Server) SetKnowledge(c *claude.Client, p *knowledge.Pipeline, w *knowle
 // SetEmbedder attaches the Ollama embedder (nil = disabled).
 func (s *Server) SetEmbedder(e *knowledge.Embedder) {
 	s.knowEmbedder = e
+}
+
+// SetUpdateReady signals that a new binary has been downloaded and is ready to apply.
+func (s *Server) SetUpdateReady() {
+	s.mu.Lock()
+	s.updateReady = true
+	s.mu.Unlock()
+}
+
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	ready := s.updateReady
+	s.mu.Unlock()
+	writeJSON(w, map[string]any{"ready": ready})
+}
+
+func (s *Server) handleUpdateRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	go func() {
+		// Give the response time to flush before exiting.
+		// launchd KeepAlive will restart the process with the new binary.
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(0)
+	}()
 }
 
 // executeBatchJob is the callback the batch queue uses to run each job.
@@ -175,6 +204,10 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/documents/search", s.handleDocumentsSearch)
 	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
 	mux.HandleFunc("/api/documents/unindexed-count", s.handleDocumentsUnindexedCount)
+
+	// Self-update status + restart
+	mux.HandleFunc("/api/update/status", s.handleUpdateStatus)
+	mux.HandleFunc("/api/update/restart", s.handleUpdateRestart)
 
 	// MCP SSE endpoints — available for remote MCP clients
 	mcpHandler := mcp.NewSSEHandler(fmt.Sprintf("http://127.0.0.1:%d", s.port))

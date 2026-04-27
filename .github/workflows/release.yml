@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        run: |
+          VERSION=$(git rev-parse --short HEAD)
+          echo "Building version $VERSION"
+          GOARCH=arm64 GOOS=darwin go build -ldflags "-X main.version=$VERSION" -o claude-bridge-arm64 .
+          GOARCH=amd64 GOOS=darwin go build -ldflags "-X main.version=$VERSION" -o claude-bridge-amd64 .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest
+          make_latest: true
+          body: "Auto-released from commit ${{ github.sha }}"
+          files: |
+            claude-bridge-arm64
+            claude-bridge-amd64

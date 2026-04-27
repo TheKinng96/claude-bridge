@@ -20,7 +20,11 @@ import (
 	"claude-bridge/internal/server"
 	"claude-bridge/internal/store"
 	"claude-bridge/internal/tray"
+	"claude-bridge/internal/updater"
 )
+
+// version is embedded at build time via -ldflags "-X main.version=<git-sha>".
+var version = "dev"
 
 const (
 	defaultPort    = 10002
@@ -33,7 +37,13 @@ func main() {
 	tlsPort := flag.Int("tls-port", defaultTLSPort, "HTTPS server port (for Claude Desktop connector)")
 	noTray := flag.Bool("no-tray", false, "Run without system tray (headless mode)")
 	dataDir := flag.String("data-dir", "", "Directory for session data (default: ~/.claude-bridge)")
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
 	// Resolve data directory.
 	dd := *dataDir
@@ -120,6 +130,10 @@ func main() {
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
+
+	// Start self-updater: checks GitHub Releases every 6h, signals dashboard when ready.
+	upd := updater.New(version, func() { srv.SetUpdateReady() })
+	upd.Start()
 
 	// Start HTTPS server for Claude Desktop (requires https:// URL).
 	if err := srv.StartTLS(*tlsPort, dd); err != nil {
