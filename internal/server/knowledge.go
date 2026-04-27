@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -222,6 +224,33 @@ func (s *Server) handleDocumentsRescan(w http.ResponseWriter, r *http.Request) {
 	s.knowWatcher.Rescan()
 	_ = knowledge.UpdateLastScan(r.Context(), s.store)
 	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// handleDocumentsUnindexedCount walks the configured folder and returns the count of files
+// not yet in the DB with status=ready. Used by the UI to warn before a bulk index run.
+func (s *Server) handleDocumentsUnindexedCount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx := r.Context()
+	folder := watcherFolder(s.knowWatcher)
+	if folder == "" {
+		writeJSON(w, map[string]interface{}{"ok": true, "count": 0, "folder": ""})
+		return
+	}
+	ready, _ := s.store.ReadyDocumentPaths(ctx)
+	count := 0
+	_ = filepath.WalkDir(folder, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !knowledge.IsSupported(path) {
+			return nil
+		}
+		if !ready[path] {
+			count++
+		}
+		return nil
+	})
+	writeJSON(w, map[string]interface{}{"ok": true, "count": count, "folder": folder})
 }
 
 // handleBrowseFolder opens a native macOS folder picker via osascript and returns the chosen path.

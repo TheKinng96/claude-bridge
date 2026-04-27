@@ -128,9 +128,15 @@ func (p *Pipeline) run() {
 					if p.sessionLimit > 0 && p.sessionCount >= p.sessionLimit {
 						log.Printf("[knowledge] session limit %d reached — pausing new classifications. Use 'Rescan' or increase the limit.", p.sessionLimit)
 						cancel()
-						// Drain remaining ingest jobs silently until stop.
-						p.drainPending()
-						return
+						// Stay alive draining the channel so Enqueue never blocks.
+						for {
+							select {
+							case <-p.stop:
+								return
+							case <-p.in:
+								// discard
+							}
+						}
 					}
 					select {
 					case <-p.stop:
@@ -145,20 +151,6 @@ func (p *Pipeline) run() {
 				}
 			}
 			cancel()
-		}
-	}
-}
-
-// drainPending discards all pending ingest jobs without processing them.
-// Called when session limit is hit so the goroutine can exit cleanly.
-func (p *Pipeline) drainPending() {
-	for {
-		select {
-		case <-p.in:
-		case <-p.stop:
-			return
-		default:
-			return
 		}
 	}
 }

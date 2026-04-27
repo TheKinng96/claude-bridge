@@ -87,7 +87,7 @@ func (w *Watcher) SetFolder(folder string) error {
 	w.running = true
 
 	go w.runEvents(ctx, watcher)
-	go w.initialScan(folder)
+	// No auto-scan: indexing is triggered manually via Rescan().
 	log.Printf("[knowledge] watching folder: %s", folder)
 	return nil
 }
@@ -137,6 +137,9 @@ func (w *Watcher) initialScan(folder string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Skip files already classified so we don't read every file on disk at startup.
+	ready, _ := w.store.ReadyDocumentPaths(ctx)
+
 	seen := map[string]bool{}
 	_ = filepath.WalkDir(folder, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -149,7 +152,9 @@ func (w *Watcher) initialScan(folder string) {
 			return nil
 		}
 		seen[path] = true
-		w.pipeline.Enqueue(path)
+		if !ready[path] {
+			w.pipeline.Enqueue(path)
+		}
 		return nil
 	})
 
@@ -168,17 +173,6 @@ func (w *Watcher) initialScan(folder string) {
 }
 
 func (w *Watcher) runEvents(ctx context.Context, fw *fsnotify.Watcher) {
-	// Debounce WRITE events — editors often emit several per save.
-	pending := map[string]*time.Timer{}
-	var mu sync.Mutex
-
-	fire := func(path string) {
-		mu.Lock()
-		delete(pending, path)
-		mu.Unlock()
-		w.pipeline.Enqueue(path)
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -188,23 +182,11 @@ func (w *Watcher) runEvents(ctx context.Context, fw *fsnotify.Watcher) {
 				return
 			}
 			if ev.Op&fsnotify.Create != 0 {
-				// If a directory was created, start watching it.
+				// Watch newly created subdirectories so deletes inside them are tracked.
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
 					_ = fw.Add(ev.Name)
-					continue
 				}
-				if IsSupported(ev.Name) {
-					w.pipeline.Enqueue(ev.Name)
-				}
-			}
-			if ev.Op&fsnotify.Write != 0 && IsSupported(ev.Name) {
-				mu.Lock()
-				if t, ok := pending[ev.Name]; ok {
-					t.Stop()
-				}
-				name := ev.Name
-				pending[name] = time.AfterFunc(500*time.Millisecond, func() { fire(name) })
-				mu.Unlock()
+				// No auto-enqueue: files are indexed only on explicit user request.
 			}
 			if ev.Op&fsnotify.Remove != 0 {
 				w.pipeline.EnqueueDelete(ev.Name)

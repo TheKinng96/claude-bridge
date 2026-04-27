@@ -168,6 +168,7 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/documents/", s.handleDocumentByID) // /api/documents/{id} and /api/documents/{id}/reingest
 	mux.HandleFunc("/api/documents/search", s.handleDocumentsSearch)
 	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
+	mux.HandleFunc("/api/documents/unindexed-count", s.handleDocumentsUnindexedCount)
 
 	// MCP SSE endpoints — available for remote MCP clients
 	mcpHandler := mcp.NewSSEHandler(fmt.Sprintf("http://127.0.0.1:%d", s.port))

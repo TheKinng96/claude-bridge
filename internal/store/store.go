@@ -942,6 +942,24 @@ func (s *Store) DocumentStats(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
+// ReadyDocumentPaths returns a set of paths where status='ready' (used to skip re-scan on startup).
+func (s *Store) ReadyDocumentPaths(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path FROM documents WHERE status = 'ready'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out[p] = true
+	}
+	return out, rows.Err()
+}
+
 // AllDocumentPaths returns every path currently in the table (used by startup scan for pruning).
 func (s *Store) AllDocumentPaths(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT path FROM documents`)

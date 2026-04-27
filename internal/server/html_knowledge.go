@@ -120,9 +120,10 @@ const knowledgeHTML = `<!DOCTYPE html>
 	<div class="card">
 		<h3>Documents</h3>
 		<div class="actions-row">
-			<button class="btn btn-outline btn-sm" onclick="rescan()">Rescan folder</button>
+			<button class="btn btn-primary btn-sm" onclick="indexAll()">Index All</button>
 			<button class="btn btn-outline btn-sm" onclick="retryFailed()">Retry failed</button>
 		</div>
+		<p class="help" style="margin-bottom:8px;">Files in your folder are <strong>not indexed automatically</strong>. Click <em>Index All</em> to classify new files — each file uses one Claude API call.</p>
 		<table class="doc-table">
 			<thead>
 				<tr>
@@ -228,9 +229,25 @@ async function loadDocs() {
 	} catch (e) { console.error(e); }
 }
 
-async function rescan() {
-	await fetch('/api/documents/rescan', {method: 'POST'});
-	setTimeout(loadDocs, 600);
+async function indexAll() {
+	try {
+		const r = await fetch('/api/documents/unindexed-count');
+		const j = await r.json();
+		const n = j.count || 0;
+		if (n === 0) {
+			alert('All files in the folder are already indexed. Nothing to do.');
+			return;
+		}
+		const ok = confirm(
+			'Index ' + n + ' file' + (n === 1 ? '' : 's') + '?\n\n' +
+			'Each file uses one Claude API call (token cost depends on file size and model).\n\n' +
+			'Classification runs at the configured delay between files to avoid burning through tokens too fast.\n\n' +
+			'Continue?'
+		);
+		if (!ok) return;
+		await fetch('/api/documents/rescan', {method: 'POST'});
+		setTimeout(loadDocs, 600);
+	} catch (e) { console.error(e); }
 }
 
 async function retryFailed() {
