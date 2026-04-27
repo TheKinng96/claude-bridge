@@ -5,10 +5,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	// sqlite-fk driver is registered in sqlitedriver.go — wraps modernc.org/sqlite
@@ -317,6 +321,18 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migration failed: %w\nSQL: %s", err, m)
 		}
 	}
+
+	// Additive column migrations — silently skip if column already exists.
+	for _, m := range []string{
+		`ALTER TABLE documents ADD COLUMN embedding BLOB`,
+	} {
+		if _, err := s.db.Exec(m); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+				return fmt.Errorf("migration failed: %w\nSQL: %s", err, m)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -976,6 +992,114 @@ func (s *Store) AllDocumentPaths(ctx context.Context) ([]string, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// HasEmbedding reports whether the document already has an embedding stored.
+func (s *Store) HasEmbedding(ctx context.Context, id int64) bool {
+	var n int
+	s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM documents WHERE id = ? AND embedding IS NOT NULL`, id).Scan(&n)
+	return n > 0
+}
+
+// SetDocumentEmbedding stores a float32 vector for a document.
+func (s *Store) SetDocumentEmbedding(ctx context.Context, id int64, vec []float32) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE documents SET embedding = ? WHERE id = ?`,
+		float32SliceToBytes(vec), id,
+	)
+	return err
+}
+
+// EmbeddingStats returns total ready docs and how many have embeddings.
+func (s *Store) EmbeddingStats(ctx context.Context) (total, withEmbedding int, err error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) FROM documents WHERE status = 'ready'`)
+	err = row.Scan(&total, &withEmbedding)
+	return
+}
+
+// VectorSearch loads all embeddings into memory and returns the top-limit most similar docs.
+// Falls back gracefully — returns empty slice (not error) if no embeddings exist yet.
+func (s *Store) VectorSearch(ctx context.Context, queryVec []float32, limit int) ([]DocumentSearchHit, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, path, filename, doc_type, product, language, summary, embedding
+		FROM documents
+		WHERE status = 'ready' AND embedding IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		hit   DocumentSearchHit
+		score float32
+	}
+	var candidates []candidate
+
+	for rows.Next() {
+		var d Document
+		var embBytes []byte
+		if err := rows.Scan(&d.ID, &d.Path, &d.Filename, &d.DocType, &d.Product, &d.Language, &d.Summary, &embBytes); err != nil {
+			continue
+		}
+		if len(embBytes) == 0 {
+			continue
+		}
+		vec := bytesToFloat32Slice(embBytes)
+		score := cosineSimilarity(queryVec, vec)
+		candidates = append(candidates, candidate{
+			hit:   DocumentSearchHit{Document: d},
+			score: score,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	out := make([]DocumentSearchHit, len(candidates))
+	for i, c := range candidates {
+		c.hit.Rank = float64(c.score)
+		out[i] = c.hit
+	}
+	return out, nil
+}
+
+func float32SliceToBytes(v []float32) []byte {
+	b := make([]byte, len(v)*4)
+	for i, f := range v {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(f))
+	}
+	return b
+}
+
+func bytesToFloat32Slice(b []byte) []float32 {
+	v := make([]float32, len(b)/4)
+	for i := range v {
+		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return v
+}
+
+func cosineSimilarity(a, b []float32) float32 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+	var dot, normA, normB float32
+	for i := range a {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
 }
 
 func (s *Store) scanDocumentRow(row *sql.Row) (*Document, error) {

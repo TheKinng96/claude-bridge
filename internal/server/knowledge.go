@@ -28,6 +28,15 @@ func (s *Server) handleKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg, _ := knowledge.LoadConfig(ctx, s.store)
+		ollamaURL := cfg.OllamaURL
+		if ollamaURL == "" {
+			ollamaURL = knowledge.DefaultOllamaURL
+		}
+		embedModel := cfg.EmbedModel
+		if embedModel == "" {
+			embedModel = knowledge.DefaultEmbedModel
+		}
+		embTotal, embWithVec, _ := s.store.EmbeddingStats(ctx)
 		writeJSON(w, map[string]interface{}{
 			"folder_path":        cfg.FolderPath,
 			"model":              cfg.Model,
@@ -37,6 +46,11 @@ func (s *Server) handleKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 			"watcher_running":    s.knowWatcher != nil && s.knowWatcher.Running(),
 			"watcher_folder":     watcherFolder(s.knowWatcher),
 			"api_calls":          apiCallsOf(s.knowClient),
+			"ollama_url":         ollamaURL,
+			"embed_model":        embedModel,
+			"ollama_online":      s.knowEmbedder != nil,
+			"embed_total":        embTotal,
+			"embed_with_vec":     embWithVec,
 		})
 	case http.MethodPost:
 		var body struct {
@@ -44,6 +58,8 @@ func (s *Server) handleKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 			Model            string `json:"model"`
 			ClassifyDelaySec int    `json:"classify_delay_sec"`
 			SessionLimit     int    `json:"session_limit"`
+			OllamaURL        string `json:"ollama_url"`
+			EmbedModel       string `json:"embed_model"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
@@ -54,6 +70,8 @@ func (s *Server) handleKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 			Model:            body.Model,
 			ClassifyDelaySec: body.ClassifyDelaySec,
 			SessionLimit:     body.SessionLimit,
+			OllamaURL:        body.OllamaURL,
+			EmbedModel:       body.EmbedModel,
 		}
 		if cfg.Model == "" {
 			cfg.Model = claude.DefaultModel

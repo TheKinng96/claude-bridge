@@ -12,11 +12,13 @@ const platformKnowledge = "knowledge"
 
 // Config is what the dashboard reads/writes.
 type Config struct {
-	FolderPath      string    `json:"folder_path"`
-	Model           string    `json:"model"`
-	LastScanAt      time.Time `json:"last_scan_at,omitempty"`
-	ClassifyDelaySec int      `json:"classify_delay_sec"` // seconds between API calls, 0 = use default
-	SessionLimit    int       `json:"session_limit"`      // max new files classified per startup, 0 = use default
+	FolderPath       string    `json:"folder_path"`
+	Model            string    `json:"model"`
+	LastScanAt       time.Time `json:"last_scan_at,omitempty"`
+	ClassifyDelaySec int       `json:"classify_delay_sec"` // seconds between API calls, 0 = use default
+	SessionLimit     int       `json:"session_limit"`      // max new files classified per startup, 0 = use default
+	OllamaURL        string    `json:"ollama_url"`         // e.g. "http://localhost:11434", empty = default
+	EmbedModel       string    `json:"embed_model"`        // e.g. "nomic-embed-text", empty = default
 }
 
 const DefaultClassifyDelaySec = 10 // 10 seconds between claude --print calls

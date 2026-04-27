@@ -33,6 +33,7 @@ type Server struct {
 	knowClient    *claude.Client
 	knowPipeline  *knowledge.Pipeline
 	knowWatcher   *knowledge.Watcher
+	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
 	agentRunner   agentRunner
 	port          int
 	listener      net.Listener
@@ -59,6 +60,11 @@ func (s *Server) SetKnowledge(c *claude.Client, p *knowledge.Pipeline, w *knowle
 	s.knowClient = c
 	s.knowPipeline = p
 	s.knowWatcher = w
+}
+
+// SetEmbedder attaches the Ollama embedder (nil = disabled).
+func (s *Server) SetEmbedder(e *knowledge.Embedder) {
+	s.knowEmbedder = e
 }
 
 // executeBatchJob is the callback the batch queue uses to run each job.

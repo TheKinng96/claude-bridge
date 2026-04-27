@@ -101,11 +101,29 @@ const knowledgeHTML = `<!DOCTYPE html>
 		<div class="form-row">
 			<label for="sessionLimit">Max new files per startup</label>
 			<input type="number" id="sessionLimit" min="1" max="1000" placeholder="20" style="width:100px;">
-			<span style="color:var(--text-dim);font-size:13px;margin-left:8px;">Default: 20 — use Rescan to classify more</span>
+			<span style="color:var(--text-dim);font-size:13px;margin-left:8px;">Default: 20 — use Index All to classify more</span>
 		</div>
 		<div class="actions-row">
 			<button class="btn btn-primary" onclick="saveConfig()">Save</button>
 			<button class="btn btn-outline" onclick="loadAll()">Reload</button>
+		</div>
+	</div>
+
+	<div class="card">
+		<h3>Vector Search <span id="ollamaStatus" style="font-size:12px;margin-left:8px;"></span></h3>
+		<div class="help">Semantic search using Ollama local embeddings. Much better than keyword search — finds relevant documents even when the words don't match. Requires <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> running locally with the embedding model pulled.</div>
+		<div class="form-row">
+			<label for="ollamaURL">Ollama URL</label>
+			<input type="text" id="ollamaURL" placeholder="http://localhost:11434">
+		</div>
+		<div class="form-row">
+			<label for="embedModel">Embedding model</label>
+			<input type="text" id="embedModel" placeholder="nomic-embed-text">
+			<span style="color:var(--text-dim);font-size:12px;margin-top:4px;">Run: <code>ollama pull nomic-embed-text</code></span>
+		</div>
+		<div id="embedStats" style="font-size:13px;color:var(--text-dim);margin-bottom:12px;"></div>
+		<div class="actions-row">
+			<button class="btn btn-primary" onclick="saveConfig()">Save</button>
 		</div>
 	</div>
 
@@ -166,6 +184,22 @@ async function loadConfig() {
 		document.getElementById('classifyDelay').value = j.classify_delay_sec || 10;
 		document.getElementById('sessionLimit').value = j.session_limit || 20;
 		document.getElementById('statCalls').textContent = j.api_calls || 0;
+		document.getElementById('ollamaURL').value = j.ollama_url || 'http://localhost:11434';
+		document.getElementById('embedModel').value = j.embed_model || 'nomic-embed-text';
+		// Ollama status badge
+		const badge = document.getElementById('ollamaStatus');
+		if (j.ollama_online) {
+			badge.innerHTML = '<span class="status-badge status-ready">Online</span>';
+		} else {
+			badge.innerHTML = '<span class="status-badge status-failed">Offline</span>';
+		}
+		// Embedding progress
+		const stats = document.getElementById('embedStats');
+		if (j.embed_total > 0) {
+			stats.textContent = j.embed_with_vec + ' / ' + j.embed_total + ' documents have vectors' + (j.ollama_online ? '' : ' — start Ollama + click Index All to generate missing ones');
+		} else {
+			stats.textContent = 'No indexed documents yet.';
+		}
 		const banners = document.getElementById('banners');
 		banners.innerHTML = '';
 		if (j.folder_path && !j.watcher_running) {
@@ -180,6 +214,8 @@ async function saveConfig() {
 		model: document.getElementById('model').value,
 		classify_delay_sec: parseInt(document.getElementById('classifyDelay').value) || 10,
 		session_limit: parseInt(document.getElementById('sessionLimit').value) || 20,
+		ollama_url: document.getElementById('ollamaURL').value.trim(),
+		embed_model: document.getElementById('embedModel').value.trim(),
 	};
 	const r = await fetch('/api/knowledge/config', {
 		method: 'POST',

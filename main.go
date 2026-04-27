@@ -85,6 +85,17 @@ func main() {
 	knowClient := claude.New("", knowCfg.Model)
 	knowPipeline := knowledge.NewPipeline(appStore, knowClient)
 	knowPipeline.Configure(knowCfg)
+
+	// Attach Ollama embedder for vector search (optional — silently skipped if Ollama not running).
+	knowEmbedder := knowledge.NewEmbedder(knowCfg.OllamaURL, knowCfg.EmbedModel)
+	if knowEmbedder.Available(knowCtx) {
+		knowPipeline.SetEmbedder(knowEmbedder)
+		log.Printf("[knowledge] Ollama available at %s — vector search enabled", knowEmbedder.BaseURL())
+	} else {
+		log.Printf("[knowledge] Ollama not available — using FTS5 keyword search only")
+		knowEmbedder = nil
+	}
+
 	knowPipeline.Start()
 	knowWatcher := knowledge.NewWatcher(appStore, knowPipeline)
 	if knowCfg.FolderPath != "" {
@@ -95,12 +106,16 @@ func main() {
 
 	// Boot the auto-reply agent subsystem.
 	agentReplier := agent.NewReplier(knowClient, appStore)
+	if knowEmbedder != nil {
+		agentReplier.SetEmbedder(knowEmbedder)
+	}
 	agentRunner := agent.NewRunner(agentReplier, wa.SendMessage, appStore)
 	agentRunner.Start()
 	wa.SetAgentCallback(agentRunner.Enqueue)
 
 	srv := server.New(wa, fb, appStore, browserEngine, *port)
 	srv.SetKnowledge(knowClient, knowPipeline, knowWatcher)
+	srv.SetEmbedder(knowEmbedder)
 	srv.SetAgent(agentRunner)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)

@@ -26,8 +26,9 @@ import (
 // the public Enqueue/EnqueueDelete methods; the watcher and HTTP handlers both
 // feed it.
 type Pipeline struct {
-	store  *store.Store
-	client *claude.Client
+	store   *store.Store
+	client  *claude.Client
+	embedder *Embedder // nil = no vector search
 
 	in     chan job
 	stop   chan struct{}
@@ -73,6 +74,11 @@ func (p *Pipeline) Configure(cfg Config) {
 	if cfg.SessionLimit > 0 {
 		p.sessionLimit = cfg.SessionLimit
 	}
+}
+
+// SetEmbedder attaches an Ollama embedder. Call before Start().
+func (p *Pipeline) SetEmbedder(e *Embedder) {
+	p.embedder = e
 }
 
 // Start launches the worker goroutine.
@@ -189,6 +195,13 @@ func (p *Pipeline) ingest(ctx context.Context, path string) (bool, error) {
 		return false, err
 	}
 	if existing != nil && existing.FileHash == hash && existing.Status == "ready" {
+		// File unchanged — but generate embedding if missing and embedder is available.
+		if p.embedder != nil && !p.store.HasEmbedding(ctx, existing.ID) {
+			embedText := existing.DocType + " " + existing.Product + " " + existing.Summary + " " + existing.KeyTerms
+			if vec, err := p.embedder.Embed(ctx, embedText); err == nil {
+				_ = p.store.SetDocumentEmbedding(ctx, existing.ID, vec)
+			}
+		}
 		return false, nil // unchanged, already ingested
 	}
 
@@ -266,6 +279,17 @@ func (p *Pipeline) ingest(ctx context.Context, path string) (bool, error) {
 	if err := p.store.UpdateDocumentMetadata(ctx, id, dbDoc); err != nil {
 		return false, fmt.Errorf("update metadata: %w", err)
 	}
+
+	// Embed: generate vector after classification so search is immediately semantic.
+	if p.embedder != nil {
+		embedText := md.DocType + " " + md.Product + " " + md.Summary + " " + strings.Join(md.KeyTerms, " ")
+		if vec, err := p.embedder.Embed(ctx, embedText); err == nil {
+			_ = p.store.SetDocumentEmbedding(ctx, id, vec)
+		} else {
+			log.Printf("[knowledge] embed %s: %v", filepath.Base(path), err)
+		}
+	}
+
 	return true, nil // classified = new API call was made
 }
 
