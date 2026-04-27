@@ -5,10 +5,17 @@ on:
     branches: [main]
 
 jobs:
-  release:
-    runs-on: macos-latest
-    permissions:
-      contents: write
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+            binary: claude-bridge-arm64
+          - runner: macos-13
+            arch: amd64
+            binary: claude-bridge-amd64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -17,15 +24,28 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build binaries
+      - name: Build binary
         run: |
           VERSION=$(git rev-parse --short HEAD)
-          echo "Building version $VERSION"
-          GOARCH=arm64 GOOS=darwin go build -ldflags "-X main.version=$VERSION" -o claude-bridge-arm64 .
-          GOARCH=amd64 GOOS=darwin go build -ldflags "-X main.version=$VERSION" -o claude-bridge-amd64 .
+          echo "Building version $VERSION for ${{ matrix.arch }}"
+          go build -ldflags "-X main.version=$VERSION" -o ${{ matrix.binary }} .
 
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: ${{ matrix.binary }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest
