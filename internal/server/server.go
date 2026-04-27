@@ -33,11 +33,18 @@ type Server struct {
 	knowClient    *claude.Client
 	knowPipeline  *knowledge.Pipeline
 	knowWatcher   *knowledge.Watcher
+	agentRunner   agentRunner
 	port          int
 	listener      net.Listener
 	tlsListener   net.Listener
 	mu            sync.Mutex
 }
+
+// agentRunner is a minimal interface so server.go doesn't import the agent package.
+type agentRunner interface{}
+
+// SetAgent attaches the auto-reply agent runner.
+func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
@@ -151,6 +158,10 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/api/whatsapp/contacts", s.handleWAContacts)
 
 	// API — Knowledge ingestion
+	mux.HandleFunc("/setup/agent", s.handleAgent)
+	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
+	mux.HandleFunc("/api/agent/replies", s.handleAgentReplies)
+
 	mux.HandleFunc("/api/knowledge/config", s.handleKnowledgeConfig)
 	mux.HandleFunc("/api/browse-folder", s.handleBrowseFolder)
 	mux.HandleFunc("/api/documents", s.handleDocumentsList)

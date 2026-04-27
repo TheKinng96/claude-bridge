@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // DefaultModel is used when none is configured.
@@ -82,6 +83,33 @@ func (c *Client) Model() string {
 
 // APICalls returns the running count of classification calls this process has made.
 func (c *Client) APICalls() int64 { return atomic.LoadInt64(&c.apiCalls) }
+
+// Reply generates a conversational reply. systemPrompt sets the agent role;
+// conversation contains the full formatted context (history + incoming message).
+// Returns raw reply text — no JSON parsing.
+func (c *Client) Reply(ctx context.Context, systemPrompt, conversation string) (string, error) {
+	c.mu.RLock()
+	model := c.model
+	claudeBin := c.claudeBin
+	c.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	prompt := systemPrompt + "\n\n" + conversation
+	cmd := exec.CommandContext(ctx, claudeBin, "--print", "--model", model)
+	cmd.Stdin = strings.NewReader(prompt)
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf("claude exited %d: %s", exitErr.ExitCode(), truncate(string(exitErr.Stderr), 200))
+		}
+		return "", err
+	}
+	atomic.AddInt64(&c.apiCalls, 1)
+	return strings.TrimSpace(string(out)), nil
+}
 
 // Classify sends extracted text to Claude for metadata extraction.
 func (c *Client) Classify(ctx context.Context, text string, h Hints) (Metadata, error) {

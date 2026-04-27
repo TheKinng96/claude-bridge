@@ -93,6 +93,7 @@ const dashboardHTML = `<!DOCTYPE html>
 	<a href="/setup/whatsapp">WhatsApp</a>
 	<a href="/setup/facebook">Facebook</a>
 	<a href="/setup/knowledge">Knowledge</a>
+	<a href="/setup/agent">Agent</a>
 	<div class="spacer"></div>
 	<button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark theme"></button>
 </nav>

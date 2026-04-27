@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"path/filepath"
 	"sync"
 	"time"
@@ -71,6 +72,14 @@ type Manager struct {
 	qrCode   string
 	qrError  string
 	qrActive bool
+
+	// agentCallback is called for every incoming 1-on-1 message when set.
+	agentCallback func(contactJID, accountJID, body, pushName string, ts time.Time)
+}
+
+// SetAgentCallback registers a function called for each incoming non-group message.
+func (m *Manager) SetAgentCallback(fn func(contactJID, accountJID, body, pushName string, ts time.Time)) {
+	m.agentCallback = fn
 }
 
 // NewManager creates a new WhatsApp multi-account manager.
@@ -426,6 +435,35 @@ func (m *Manager) handleMessage(ac *AccountClient, evt *events.Message) {
 		}
 	}
 	ac.mu.Unlock()
+
+	// Persist contact + message to SQLite.
+	if m.appStore != nil && senderKey != "" {
+		ctx := context.Background()
+		_ = m.appStore.UpsertCachedContact(ctx, &store.CachedContact{
+			Platform:  "whatsapp",
+			ContactID: senderKey,
+			Name:      evt.Info.PushName,
+		})
+		if body != "" {
+			_ = m.appStore.UpsertCachedMessage(ctx, &store.CachedMessage{
+				Platform:       "whatsapp",
+				ConversationID: evt.Info.Chat.String(),
+				MessageID:      evt.Info.ID,
+				SenderID:       senderKey,
+				SenderName:     evt.Info.PushName,
+				Content:        body,
+				Timestamp:      evt.Info.Timestamp,
+				IsOutgoing:     evt.Info.IsFromMe,
+			})
+		}
+	}
+
+	// Fire agent callback for incoming non-group 1-on-1 messages.
+	chatJID := evt.Info.Chat.String()
+	if !evt.Info.IsFromMe && body != "" && m.agentCallback != nil &&
+		!strings.HasSuffix(chatJID, "@g.us") {
+		m.agentCallback(chatJID, ac.jid, body, evt.Info.PushName, evt.Info.Timestamp)
+	}
 }
 
 // --- Public API ---

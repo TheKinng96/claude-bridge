@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"claude-bridge/internal/agent"
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
@@ -92,8 +93,15 @@ func main() {
 		}
 	}
 
+	// Boot the auto-reply agent subsystem.
+	agentReplier := agent.NewReplier(knowClient, appStore)
+	agentRunner := agent.NewRunner(agentReplier, wa.SendMessage, appStore)
+	agentRunner.Start()
+	wa.SetAgentCallback(agentRunner.Enqueue)
+
 	srv := server.New(wa, fb, appStore, browserEngine, *port)
 	srv.SetKnowledge(knowClient, knowPipeline, knowWatcher)
+	srv.SetAgent(agentRunner)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
