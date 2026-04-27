@@ -26,6 +26,7 @@ echo "Downloading latest binary..."
 curl -fsSL "https://github.com/$REPO/releases/latest/download/$BIN" \
     -o "$INSTALL_DIR/claude-bridge"
 chmod +x "$INSTALL_DIR/claude-bridge"
+xattr -d com.apple.quarantine "$INSTALL_DIR/claude-bridge" 2>/dev/null || true
 
 VERSION=$("$INSTALL_DIR/claude-bridge" --version 2>/dev/null || echo "unknown")
 echo "Downloaded version: $VERSION"
