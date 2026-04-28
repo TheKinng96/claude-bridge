@@ -1435,7 +1435,7 @@ func (s *Store) ListPendingReplies(ctx context.Context, status string) ([]Pendin
 		return nil, err
 	}
 	defer rows.Close()
-	var out []PendingReply
+	out := make([]PendingReply, 0)
 	for rows.Next() {
 		var p PendingReply
 		var reviewedAt sql.NullTime
@@ -1500,18 +1500,15 @@ func (s *Store) ConsumeMagicToken(ctx context.Context, tokenHash string) (bool, 
 	defer tx.Rollback()
 
 	var id int64
-	var expiresAt time.Time
-	var usedAt sql.NullTime
 	row := tx.QueryRowContext(ctx,
-		`SELECT id, expires_at, used_at FROM magic_tokens WHERE token_hash=?`, tokenHash)
-	if err := row.Scan(&id, &expiresAt, &usedAt); err != nil {
+		`SELECT id FROM magic_tokens
+		 WHERE token_hash=? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP`,
+		tokenHash)
+	if err := row.Scan(&id); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
 		return false, err
-	}
-	if usedAt.Valid || time.Now().After(expiresAt) {
-		return false, nil
 	}
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE magic_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=?`, id); err != nil {
