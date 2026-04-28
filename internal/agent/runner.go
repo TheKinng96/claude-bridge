@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"claude-bridge/internal/store"
@@ -20,10 +22,12 @@ type IncomingMsg struct {
 
 // Runner processes incoming messages asynchronously and sends AI replies.
 type Runner struct {
-	incoming chan IncomingMsg
-	replier  *Replier
-	sender   func(phone, text, fromJID string) error
-	store    *store.Store
+	incoming       chan IncomingMsg
+	replier        *Replier
+	sender         func(phone, text, fromJID string) error
+	store          *store.Store
+	lastNotifyTime time.Time
+	notifyMu       sync.Mutex
 }
 
 // NewRunner creates a Runner. sender is wa.Manager.SendMessage.
@@ -71,11 +75,39 @@ func (r *Runner) process(msg IncomingMsg) {
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 
+	// Always upsert the contact so it appears in the Contacts tab.
+	_, _ = r.store.UpsertContact(ctx, msg.ContactJID, "whatsapp", msg.PushName)
+
 	cfg, err := LoadConfig(ctx, r.store)
-	if err != nil || !cfg.Enabled {
+	if err != nil {
 		return
 	}
 
+	// !login command handled separately in Task 7 — placeholder check here
+	if strings.TrimSpace(strings.ToLower(msg.Body)) == "!login" {
+		if cfg.OwnerJID != "" && msg.ContactJID == cfg.OwnerJID {
+			r.handleLoginCommand(ctx, cfg, msg)
+		}
+		return
+	}
+
+	if !cfg.Enabled {
+		return
+	}
+
+	mode := ResolveReplyMode(ctx, r.store, msg.ContactJID, cfg.GlobalReplyMode)
+
+	switch mode {
+	case "off":
+		return
+	case "review":
+		r.createPendingReply(ctx, cfg, msg)
+	default: // "auto"
+		r.autoReply(ctx, cfg, msg)
+	}
+}
+
+func (r *Runner) autoReply(ctx context.Context, cfg Config, msg IncomingMsg) {
 	reply, err := r.replier.Reply(ctx, cfg, msg.ContactJID, msg.Body)
 	if err != nil {
 		log.Printf("[agent] reply error for %s: %v", msg.ContactJID, err)
@@ -84,15 +116,11 @@ func (r *Runner) process(msg IncomingMsg) {
 	if reply == "" {
 		return
 	}
-
-	// Extract phone number from JID (e.g. "60123456789@s.whatsapp.net" → "60123456789")
 	phone := strings.Split(msg.ContactJID, "@")[0]
 	if err := r.sender(phone, reply, msg.AccountJID); err != nil {
 		log.Printf("[agent] send error to %s: %v", phone, err)
 		return
 	}
-
-	// Persist outgoing reply
 	_ = r.store.UpsertCachedMessage(ctx, &store.CachedMessage{
 		Platform:       "whatsapp",
 		ConversationID: msg.ContactJID,
@@ -103,10 +131,56 @@ func (r *Runner) process(msg IncomingMsg) {
 		Timestamp:      time.Now(),
 		IsOutgoing:     true,
 	})
-
 	preview := reply
 	if len(preview) > 60 {
 		preview = preview[:60]
 	}
-	log.Printf("[agent] replied to %s (%s): %s", msg.PushName, phone, preview)
+	log.Printf("[agent] replied to %s: %s", msg.PushName, preview)
+}
+
+func (r *Runner) createPendingReply(ctx context.Context, cfg Config, msg IncomingMsg) {
+	reply, err := r.replier.Reply(ctx, cfg, msg.ContactJID, msg.Body)
+	if err != nil {
+		log.Printf("[agent] pending reply generation error for %s: %v", msg.ContactJID, err)
+		return
+	}
+	if reply == "" {
+		return
+	}
+	if _, err := r.store.CreatePendingReply(ctx, msg.ContactJID, msg.AccountJID, "whatsapp", msg.Body, reply); err != nil {
+		log.Printf("[agent] create pending reply error: %v", err)
+		return
+	}
+	log.Printf("[agent] pending reply queued for %s (%s)", msg.PushName, msg.ContactJID)
+	r.sendOwnerNotification(ctx, cfg, msg.AccountJID)
+}
+
+func (r *Runner) sendOwnerNotification(ctx context.Context, cfg Config, accountJID string) {
+	if cfg.OwnerJID == "" {
+		return
+	}
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
+	if time.Since(r.lastNotifyTime) < 5*time.Minute {
+		return
+	}
+	pending, err := r.store.ListPendingReplies(ctx, "pending")
+	if err != nil || len(pending) == 0 {
+		return
+	}
+	ownerPhone := strings.Split(cfg.OwnerJID, "@")[0]
+	word := "replies"
+	if len(pending) == 1 {
+		word = "reply"
+	}
+	text := fmt.Sprintf("You have %d pending %s waiting. Review: http://127.0.0.1:10002/messages", len(pending), word)
+	if err := r.sender(ownerPhone, text, accountJID); err != nil {
+		log.Printf("[agent] owner notification error: %v", err)
+		return
+	}
+	r.lastNotifyTime = time.Now()
+}
+
+func (r *Runner) handleLoginCommand(ctx context.Context, cfg Config, msg IncomingMsg) {
+	// Implemented in Task 7
 }
