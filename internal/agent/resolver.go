@@ -18,5 +18,8 @@ func ResolveReplyMode(ctx context.Context, s *store.Store, contactJID, globalMod
 	if err != nil || len(groups) == 0 {
 		return globalMode
 	}
+	if groups[0].ReplyMode == "" {
+		return globalMode
+	}
 	return groups[0].ReplyMode
 }
