@@ -314,6 +314,50 @@ func (s *Store) migrate() error {
 			INSERT INTO documents_fts(rowid, filename, doc_type, product, language, summary, key_terms, raw_text)
 			VALUES (new.id, new.filename, new.doc_type, new.product, new.language, new.summary, new.key_terms, new.raw_text);
 		END`,
+
+		`CREATE TABLE IF NOT EXISTS contacts (
+  id            INTEGER PRIMARY KEY,
+  jid           TEXT NOT NULL UNIQUE,
+  platform      TEXT NOT NULL DEFAULT 'whatsapp',
+  push_name     TEXT NOT NULL DEFAULT '',
+  first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`,
+
+		`CREATE TABLE IF NOT EXISTS groups (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL,
+  type       TEXT NOT NULL CHECK(type IN ('manual','auto')),
+  reply_mode TEXT NOT NULL CHECK(reply_mode IN ('auto','review','off')),
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`,
+
+		`CREATE TABLE IF NOT EXISTS contact_groups (
+  contact_id  INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  group_id    INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  source      TEXT NOT NULL CHECK(source IN ('manual','auto')),
+  assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (contact_id, group_id)
+)`,
+
+		`CREATE TABLE IF NOT EXISTS pending_replies (
+  id             INTEGER PRIMARY KEY,
+  contact_jid    TEXT NOT NULL,
+  account_jid    TEXT NOT NULL,
+  platform       TEXT NOT NULL DEFAULT 'whatsapp',
+  incoming_msg   TEXT NOT NULL,
+  proposed_reply TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending'
+                 CHECK(status IN ('pending','approved','rejected','sent')),
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at    DATETIME
+)`,
+
+		`CREATE TABLE IF NOT EXISTS magic_tokens (
+  id         INTEGER PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  used_at    DATETIME
+)`,
 	}
 
 	for _, m := range migrations {
