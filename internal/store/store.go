@@ -138,6 +138,24 @@ type DocumentSearchHit struct {
 	Rank     float64  `json:"rank"`
 }
 
+// Contact represents a person we've interacted with on any messaging platform.
+type Contact struct {
+	ID          int64     `json:"id"`
+	JID         string    `json:"jid"`
+	Platform    string    `json:"platform"`
+	PushName    string    `json:"push_name"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
+}
+
+// Group is a named segment of contacts (e.g. "VIP", "Leads").
+type Group struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	ReplyMode string    `json:"reply_mode"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Store is the app-level SQLite database.
 type Store struct {
 	db *sql.DB
@@ -1112,6 +1130,181 @@ func (s *Store) VectorSearch(ctx context.Context, queryVec []float32, limit int)
 		out[i] = c.hit
 	}
 	return out, nil
+}
+
+// --- Contact CRUD ---
+
+func (s *Store) UpsertContact(ctx context.Context, jid, platform, pushName string) (*Contact, error) {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO contacts (jid, platform, push_name) VALUES (?, ?, ?)
+		 ON CONFLICT(jid) DO UPDATE SET push_name=excluded.push_name`,
+		jid, platform, pushName)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetContact(ctx, jid)
+}
+
+func (s *Store) GetContact(ctx context.Context, jid string) (*Contact, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, jid, platform, push_name, first_seen_at FROM contacts WHERE jid=?`, jid)
+	var c Contact
+	if err := row.Scan(&c.ID, &c.JID, &c.Platform, &c.PushName, &c.FirstSeenAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (s *Store) ListContacts(ctx context.Context) ([]Contact, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, jid, platform, push_name, first_seen_at FROM contacts ORDER BY first_seen_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Contact
+	for rows.Next() {
+		var c Contact
+		if err := rows.Scan(&c.ID, &c.JID, &c.Platform, &c.PushName, &c.FirstSeenAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// --- Group CRUD ---
+
+func (s *Store) CreateGroup(ctx context.Context, name, groupType, replyMode string) (*Group, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO groups (name, type, reply_mode) VALUES (?, ?, ?)`,
+		name, groupType, replyMode)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetGroup(ctx, id)
+}
+
+func (s *Store) GetGroup(ctx context.Context, id int64) (*Group, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, type, reply_mode, created_at FROM groups WHERE id=?`, id)
+	var g Group
+	if err := row.Scan(&g.ID, &g.Name, &g.Type, &g.ReplyMode, &g.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (s *Store) UpdateGroup(ctx context.Context, id int64, name, replyMode string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE groups SET name=?, reply_mode=? WHERE id=?`, name, replyMode, id)
+	return err
+}
+
+func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM groups WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) ListGroups(ctx context.Context) ([]Group, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, type, reply_mode, created_at FROM groups ORDER BY type DESC, name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Group
+	for rows.Next() {
+		var g Group
+		if err := rows.Scan(&g.ID, &g.Name, &g.Type, &g.ReplyMode, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) AssignContactToGroup(ctx context.Context, contactID, groupID int64, source string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO contact_groups (contact_id, group_id, source) VALUES (?, ?, ?)`,
+		contactID, groupID, source)
+	return err
+}
+
+func (s *Store) RemoveContactFromGroup(ctx context.Context, contactID, groupID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM contact_groups WHERE contact_id=? AND group_id=?`, contactID, groupID)
+	return err
+}
+
+// GetContactGroups returns groups for a contact, manual groups first.
+func (s *Store) GetContactGroups(ctx context.Context, contactID int64) ([]Group, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT g.id, g.name, g.type, g.reply_mode, g.created_at
+		 FROM groups g
+		 JOIN contact_groups cg ON cg.group_id = g.id
+		 WHERE cg.contact_id = ?
+		 ORDER BY CASE cg.source WHEN 'manual' THEN 0 ELSE 1 END, g.name ASC`,
+		contactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Group
+	for rows.Next() {
+		var g Group
+		if err := rows.Scan(&g.ID, &g.Name, &g.Type, &g.ReplyMode, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListContactsWithGroups(ctx context.Context) ([]Contact, map[int64][]Group, error) {
+	contacts, err := s.ListContacts(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	groupsByContact := make(map[int64][]Group)
+	for _, c := range contacts {
+		groups, err := s.GetContactGroups(ctx, c.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		groupsByContact[c.ID] = groups
+	}
+	return contacts, groupsByContact, nil
+}
+
+func (s *Store) ListGroupContacts(ctx context.Context, groupID int64) ([]Contact, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT c.id, c.jid, c.platform, c.push_name, c.first_seen_at
+		 FROM contacts c
+		 JOIN contact_groups cg ON cg.contact_id = c.id
+		 WHERE cg.group_id = ?
+		 ORDER BY c.push_name ASC`,
+		groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Contact
+	for rows.Next() {
+		var c Contact
+		if err := rows.Scan(&c.ID, &c.JID, &c.Platform, &c.PushName, &c.FirstSeenAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 func float32SliceToBytes(v []float32) []byte {
