@@ -17,10 +17,13 @@ type FlowStep struct {
 
 // Config holds all agent settings persisted to the credentials table.
 type Config struct {
-	Enabled      bool       `json:"enabled"`
-	SystemPrompt string     `json:"system_prompt"`
-	FlowSteps    []FlowStep `json:"flow_steps"`
-	Model        string     `json:"model"`
+	Enabled           bool       `json:"enabled"`
+	SystemPrompt      string     `json:"system_prompt"`
+	FlowSteps         []FlowStep `json:"flow_steps"`
+	Model             string     `json:"model"`
+	GlobalReplyMode   string     `json:"global_reply_mode"`   // "auto"|"review"|"off"
+	OwnerJID          string     `json:"owner_jid"`           // WhatsApp JID allowed to trigger !login
+	AutoSyncFrequency string     `json:"auto_sync_frequency"` // "daily"|"weekly"|"off"
 }
 
 // DefaultFlowSteps are prepopulated when no steps are saved yet.
@@ -44,6 +47,12 @@ func LoadConfig(ctx context.Context, s *store.Store) (Config, error) {
 	}
 	if len(c.FlowSteps) == 0 {
 		c.FlowSteps = DefaultFlowSteps
+	}
+	if c.GlobalReplyMode == "" {
+		c.GlobalReplyMode = "auto"
+	}
+	if c.AutoSyncFrequency == "" {
+		c.AutoSyncFrequency = "off"
 	}
 	return c, nil
 }
