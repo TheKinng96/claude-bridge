@@ -156,6 +156,27 @@ type Group struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// PendingReply is a proposed outgoing reply awaiting human review.
+type PendingReply struct {
+	ID            int64      `json:"id"`
+	ContactJID    string     `json:"contact_jid"`
+	AccountJID    string     `json:"account_jid"`
+	Platform      string     `json:"platform"`
+	IncomingMsg   string     `json:"incoming_msg"`
+	ProposedReply string     `json:"proposed_reply"`
+	Status        string     `json:"status"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
+}
+
+// MagicToken is a single-use authentication token for the review UI.
+type MagicToken struct {
+	ID        int64      `json:"id"`
+	TokenHash string     `json:"token_hash"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+}
+
 // Store is the app-level SQLite database.
 type Store struct {
 	db *sql.DB
@@ -1383,4 +1404,118 @@ func scanDocumentFromRows(rows *sql.Rows) (*Document, error) {
 		d.IngestedAt = t
 	}
 	return &d, nil
+}
+
+// ── PendingReply CRUD ────────────────────────────────────────────────────────
+
+func (s *Store) CreatePendingReply(ctx context.Context, contactJID, accountJID, platform, incomingMsg, proposedReply string) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO pending_replies (contact_jid, account_jid, platform, incoming_msg, proposed_reply)
+		 VALUES (?, ?, ?, ?, ?)`,
+		contactJID, accountJID, platform, incomingMsg, proposedReply)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) ListPendingReplies(ctx context.Context, status string) ([]PendingReply, error) {
+	var rows *sql.Rows
+	var err error
+	if status == "" {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, contact_jid, account_jid, platform, incoming_msg, proposed_reply, status, created_at, reviewed_at
+			 FROM pending_replies ORDER BY created_at DESC`)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, contact_jid, account_jid, platform, incoming_msg, proposed_reply, status, created_at, reviewed_at
+			 FROM pending_replies WHERE status=? ORDER BY created_at DESC`, status)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PendingReply
+	for rows.Next() {
+		var p PendingReply
+		var reviewedAt sql.NullTime
+		if err := rows.Scan(&p.ID, &p.ContactJID, &p.AccountJID, &p.Platform,
+			&p.IncomingMsg, &p.ProposedReply, &p.Status, &p.CreatedAt, &reviewedAt); err != nil {
+			return nil, err
+		}
+		if reviewedAt.Valid {
+			p.ReviewedAt = &reviewedAt.Time
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetPendingReply(ctx context.Context, id int64) (*PendingReply, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, contact_jid, account_jid, platform, incoming_msg, proposed_reply, status, created_at, reviewed_at
+		 FROM pending_replies WHERE id=?`, id)
+	var p PendingReply
+	var reviewedAt sql.NullTime
+	if err := row.Scan(&p.ID, &p.ContactJID, &p.AccountJID, &p.Platform,
+		&p.IncomingMsg, &p.ProposedReply, &p.Status, &p.CreatedAt, &reviewedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if reviewedAt.Valid {
+		p.ReviewedAt = &reviewedAt.Time
+	}
+	return &p, nil
+}
+
+func (s *Store) UpdatePendingReplyStatus(ctx context.Context, id int64, status string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE pending_replies SET status=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=?`, status, id)
+	return err
+}
+
+func (s *Store) UpdatePendingReplyContent(ctx context.Context, id int64, newReply string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE pending_replies SET proposed_reply=? WHERE id=? AND status='pending'`, newReply, id)
+	return err
+}
+
+// ── MagicToken CRUD ──────────────────────────────────────────────────────────
+
+func (s *Store) CreateMagicToken(ctx context.Context, tokenHash string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO magic_tokens (token_hash, expires_at) VALUES (?, ?)`, tokenHash, expiresAt)
+	return err
+}
+
+// ConsumeMagicToken validates a token (not expired, not used) and marks it used in one transaction.
+// Returns true if valid and consumed, false if invalid/expired/already used.
+func (s *Store) ConsumeMagicToken(ctx context.Context, tokenHash string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var id int64
+	var expiresAt time.Time
+	var usedAt sql.NullTime
+	row := tx.QueryRowContext(ctx,
+		`SELECT id, expires_at, used_at FROM magic_tokens WHERE token_hash=?`, tokenHash)
+	if err := row.Scan(&id, &expiresAt, &usedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	if usedAt.Valid || time.Now().After(expiresAt) {
+		return false, nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE magic_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=?`, id); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
