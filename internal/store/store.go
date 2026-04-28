@@ -1185,7 +1185,10 @@ func (s *Store) CreateGroup(ctx context.Context, name, groupType, replyMode stri
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("CreateGroup: last insert id: %w", err)
+	}
 	return s.GetGroup(ctx, id)
 }
 
@@ -1203,9 +1206,16 @@ func (s *Store) GetGroup(ctx context.Context, id int64) (*Group, error) {
 }
 
 func (s *Store) UpdateGroup(ctx context.Context, id int64, name, replyMode string) error {
-	_, err := s.db.ExecContext(ctx,
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE groups SET name=?, reply_mode=? WHERE id=?`, name, replyMode, id)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("group %d not found", id)
+	}
+	return nil
 }
 
 func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
