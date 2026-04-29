@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"strings"
@@ -182,5 +185,25 @@ func (r *Runner) sendOwnerNotification(ctx context.Context, cfg Config, accountJ
 }
 
 func (r *Runner) handleLoginCommand(ctx context.Context, cfg Config, msg IncomingMsg) {
-	// Implemented in Task 7
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		log.Printf("[agent] login token generation error: %v", err)
+		return
+	}
+	token := hex.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(hash[:])
+	expiresAt := time.Now().Add(30 * time.Minute)
+
+	if err := r.store.CreateMagicToken(ctx, tokenHash, expiresAt); err != nil {
+		log.Printf("[agent] store magic token error: %v", err)
+		return
+	}
+
+	ownerPhone := strings.Split(cfg.OwnerJID, "@")[0]
+	link := fmt.Sprintf("http://127.0.0.1:10002/auth?token=%s", token)
+	text := fmt.Sprintf("Dashboard login link (valid 30 min):\n%s", link)
+	if err := r.sender(ownerPhone, text, msg.AccountJID); err != nil {
+		log.Printf("[agent] send login link error: %v", err)
+	}
 }
