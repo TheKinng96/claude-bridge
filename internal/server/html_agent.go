@@ -112,6 +112,15 @@ const agentHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="card">
+		<h3>Admin Numbers</h3>
+		<div class="help">Admins receive pending-reply notifications and can send <code>!login</code> to get a remote dashboard link.</div>
+		<div id="adminChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:28px"></div>
+		<input id="contactSearch" placeholder="Search contacts to add..." oninput="filterContacts(this.value)"
+			style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
+		<div id="contactList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;display:none"></div>
+	</div>
+
+	<div class="card">
 		<h3>Conversation Flow</h3>
 		<div class="help">Define stages the agent follows in order. Claude uses these as a guide — not rigid rules — adapting naturally to the conversation.</div>
 		<div id="flowSteps"></div>
@@ -144,10 +153,13 @@ const agentHTML = `<!DOCTYPE html>
 
 <script>
 let flowSteps = [];
+let ownerJIDs = [];
+let allContacts = [];
 
 async function loadAll() {
 	await loadConfig();
 	await loadReplies();
+	await loadContacts();
 }
 
 async function loadConfig() {
@@ -158,8 +170,74 @@ async function loadConfig() {
 		document.getElementById('model').value = j.model || 'claude-haiku-4-5';
 		document.getElementById('systemPrompt').value = j.system_prompt || '';
 		flowSteps = j.flow_steps || [];
+		ownerJIDs = j.owner_jids || [];
 		renderSteps();
+		renderAdminChips();
 	} catch(e) { console.error(e); }
+}
+
+async function loadContacts() {
+	try {
+		const r = await fetch('/api/whatsapp/contacts');
+		const j = await r.json();
+		allContacts = j.contacts || [];
+	} catch(e) {}
+}
+
+function filterContacts(q) {
+	const list = document.getElementById('contactList');
+	if (!q.trim()) { list.style.display = 'none'; return; }
+	const lower = q.toLowerCase();
+	const filtered = allContacts.filter(c =>
+		(c.push_name||'').toLowerCase().includes(lower) || c.jid.toLowerCase().includes(lower)
+	).slice(0, 20);
+	if (!filtered.length) { list.style.display = 'none'; return; }
+	list.style.display = '';
+	list.innerHTML = filtered.map(c => {
+		const phone = c.jid.split('@')[0];
+		const already = ownerJIDs.includes(c.jid);
+		return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);' +
+			(already ? 'opacity:.5;pointer-events:none' : 'hover:background:var(--bg-hover)') +
+			'" onclick="addAdmin(\'' + esc(c.jid) + '\',\'' + esc(c.push_name||phone) + '\')">' +
+			'<div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--text)">' + esc(c.push_name||'(unknown)') + '</div>' +
+			'<div style="font-size:12px;color:var(--text-dim)">' + phone + '</div></div>' +
+			(already ? '<span style="font-size:11px;color:var(--green)">✓ added</span>' : '') +
+			'</div>';
+	}).join('');
+}
+
+function addAdmin(jid, name) {
+	if (!ownerJIDs.includes(jid)) {
+		ownerJIDs.push(jid);
+		renderAdminChips();
+		filterContacts(document.getElementById('contactSearch').value);
+	}
+}
+
+function removeAdmin(jid) {
+	ownerJIDs = ownerJIDs.filter(j => j !== jid);
+	renderAdminChips();
+	filterContacts(document.getElementById('contactSearch').value);
+}
+
+function renderAdminChips() {
+	const el = document.getElementById('adminChips');
+	if (!ownerJIDs.length) {
+		el.innerHTML = '<span style="font-size:13px;color:var(--text-dim)">No admins set.</span>';
+		return;
+	}
+	el.innerHTML = ownerJIDs.map(jid => {
+		const c = allContacts.find(x => x.jid === jid);
+		const label = (c && c.push_name) ? c.push_name : jid.split('@')[0];
+		return '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border-radius:20px;padding:4px 10px 4px 12px;font-size:12px;font-weight:600">' +
+			esc(label) +
+			'<button onclick="removeAdmin(\'' + esc(jid) + '\')" style="background:transparent;border:none;color:#fff;cursor:pointer;font-size:14px;line-height:1;padding:0;margin:0">&#x2715;</button>' +
+			'</span>';
+	}).join('');
+}
+
+function esc(s) {
+	return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,"&#39;");
 }
 
 async function loadReplies() {
@@ -222,6 +300,7 @@ async function saveConfig() {
 		model: document.getElementById('model').value,
 		system_prompt: document.getElementById('systemPrompt').value,
 		flow_steps: flowSteps,
+		owner_jids: ownerJIDs,
 	};
 	const r = await fetch('/api/agent/config', {
 		method: 'POST',

@@ -18,13 +18,17 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		cfg, _ := agent.LoadConfig(ctx, s.store)
+		ownerJIDs := cfg.OwnerJIDs
+		if ownerJIDs == nil {
+			ownerJIDs = []string{}
+		}
 		writeJSON(w, map[string]any{
 			"enabled":             cfg.Enabled,
 			"system_prompt":       cfg.SystemPrompt,
 			"flow_steps":          cfg.FlowSteps,
 			"model":               cfg.Model,
 			"global_reply_mode":   cfg.GlobalReplyMode,
-			"owner_jid":           cfg.OwnerJID,
+			"owner_jids":          ownerJIDs,
 			"auto_sync_frequency": cfg.AutoSyncFrequency,
 		})
 	case http.MethodPost:
@@ -34,7 +38,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			FlowSteps         []agent.FlowStep `json:"flow_steps"`
 			Model             string           `json:"model"`
 			GlobalReplyMode   string           `json:"global_reply_mode"`
-			OwnerJID          string           `json:"owner_jid"`
+			OwnerJIDs         []string         `json:"owner_jids"`
 			AutoSyncFrequency string           `json:"auto_sync_frequency"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -47,7 +51,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			FlowSteps:         body.FlowSteps,
 			Model:             body.Model,
 			GlobalReplyMode:   body.GlobalReplyMode,
-			OwnerJID:          body.OwnerJID,
+			OwnerJIDs:         body.OwnerJIDs,
 			AutoSyncFrequency: body.AutoSyncFrequency,
 		}
 		if cfg.GlobalReplyMode == "" {

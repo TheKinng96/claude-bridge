@@ -22,7 +22,8 @@ type Config struct {
 	FlowSteps         []FlowStep `json:"flow_steps"`
 	Model             string     `json:"model"`
 	GlobalReplyMode   string     `json:"global_reply_mode"`   // "auto"|"review"|"off"
-	OwnerJID          string     `json:"owner_jid"`           // WhatsApp JID allowed to trigger !login
+	OwnerJID          string     `json:"owner_jid"`           // deprecated — migrated to OwnerJIDs on load
+	OwnerJIDs         []string   `json:"owner_jids"`          // admin JIDs that receive notifications + can !login
 	AutoSyncFrequency string     `json:"auto_sync_frequency"` // "daily"|"weekly"|"off"
 }
 
@@ -53,6 +54,11 @@ func LoadConfig(ctx context.Context, s *store.Store) (Config, error) {
 	}
 	if c.AutoSyncFrequency == "" {
 		c.AutoSyncFrequency = "off"
+	}
+	// migrate legacy single owner_jid → owner_jids
+	if c.OwnerJID != "" && len(c.OwnerJIDs) == 0 {
+		c.OwnerJIDs = []string{c.OwnerJID}
+		c.OwnerJID = ""
 	}
 	return c, nil
 }

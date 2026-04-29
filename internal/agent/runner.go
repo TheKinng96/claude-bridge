@@ -86,9 +86,8 @@ func (r *Runner) process(msg IncomingMsg) {
 		return
 	}
 
-	// !login command handled separately in Task 7 — placeholder check here
 	if strings.TrimSpace(strings.ToLower(msg.Body)) == "!login" {
-		if cfg.OwnerJID != "" && msg.ContactJID == cfg.OwnerJID {
+		if containsJID(cfg.OwnerJIDs, msg.ContactJID) {
 			r.handleLoginCommand(ctx, cfg, msg)
 		}
 		return
@@ -159,7 +158,7 @@ func (r *Runner) createPendingReply(ctx context.Context, cfg Config, msg Incomin
 }
 
 func (r *Runner) sendOwnerNotification(ctx context.Context, cfg Config, accountJID string) {
-	if cfg.OwnerJID == "" {
+	if len(cfg.OwnerJIDs) == 0 {
 		return
 	}
 	r.notifyMu.Lock()
@@ -171,20 +170,21 @@ func (r *Runner) sendOwnerNotification(ctx context.Context, cfg Config, accountJ
 	if err != nil || len(pending) == 0 {
 		return
 	}
-	ownerPhone := strings.Split(cfg.OwnerJID, "@")[0]
 	word := "replies"
 	if len(pending) == 1 {
 		word = "reply"
 	}
 	text := fmt.Sprintf("You have %d pending %s waiting. Review: http://127.0.0.1:10002/messages", len(pending), word)
-	if err := r.sender(ownerPhone, text, accountJID); err != nil {
-		log.Printf("[agent] owner notification error: %v", err)
-		return
+	for _, jid := range cfg.OwnerJIDs {
+		phone := strings.Split(jid, "@")[0]
+		if err := r.sender(phone, text, accountJID); err != nil {
+			log.Printf("[agent] owner notification error to %s: %v", phone, err)
+		}
 	}
 	r.lastNotifyTime = time.Now()
 }
 
-func (r *Runner) handleLoginCommand(ctx context.Context, cfg Config, msg IncomingMsg) {
+func (r *Runner) handleLoginCommand(ctx context.Context, _ Config, msg IncomingMsg) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		log.Printf("[agent] login token generation error: %v", err)
@@ -200,10 +200,20 @@ func (r *Runner) handleLoginCommand(ctx context.Context, cfg Config, msg Incomin
 		return
 	}
 
-	ownerPhone := strings.Split(cfg.OwnerJID, "@")[0]
+	// Send link back to whoever sent !login (already verified as owner).
+	senderPhone := strings.Split(msg.ContactJID, "@")[0]
 	link := fmt.Sprintf("http://127.0.0.1:10002/auth?token=%s", token)
 	text := fmt.Sprintf("Dashboard login link (valid 30 min):\n%s", link)
-	if err := r.sender(ownerPhone, text, msg.AccountJID); err != nil {
+	if err := r.sender(senderPhone, text, msg.AccountJID); err != nil {
 		log.Printf("[agent] send login link error: %v", err)
 	}
+}
+
+func containsJID(jids []string, jid string) bool {
+	for _, j := range jids {
+		if j == jid {
+			return true
+		}
+	}
+	return false
 }
