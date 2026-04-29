@@ -10,7 +10,7 @@ import (
 )
 
 // GET /contacts — page (HTML served by html_contacts.go in Task 12)
-func (s *Server) handleContactsPage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleContactsPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(contactsPage()))
 }
