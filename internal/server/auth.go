@@ -70,6 +70,7 @@ func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  time.Now().Add(sessionDuration),
 	})
@@ -106,7 +107,7 @@ func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		// Allow: auth endpoints, static assets, MCP endpoints, all /api/ routes (used internally)
-		if path == "/auth" || path == "/login" ||
+		if path == "/auth" || path == "/login" || path == "/callback" ||
 			len(path) >= 8 && path[:8] == "/static/" ||
 			len(path) >= 5 && path[:5] == "/mcp/" ||
 			len(path) >= 5 && path[:5] == "/api/" {
