@@ -198,6 +198,18 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
 	mux.HandleFunc("/api/agent/replies", s.handleAgentReplies)
 
+	// Contacts + Groups
+	mux.HandleFunc("/contacts", s.handleContactsPage)
+	mux.HandleFunc("/api/contacts", s.handleListContacts)
+	mux.HandleFunc("/api/contacts/", s.handleContactsSubroute)
+	mux.HandleFunc("/api/groups", s.handleGroupsRoute)
+	mux.HandleFunc("/api/groups/", s.handleGroupsSubroute)
+
+	// Messages (pending replies)
+	mux.HandleFunc("/messages", s.handleMessagesPage)
+	mux.HandleFunc("/api/pending-replies", s.handleListPendingReplies)
+	mux.HandleFunc("/api/pending-replies/", s.handlePendingRepliesSubroute)
+
 	mux.HandleFunc("/api/knowledge/config", s.handleKnowledgeConfig)
 	mux.HandleFunc("/api/browse-folder", s.handleBrowseFolder)
 	mux.HandleFunc("/api/documents", s.handleDocumentsList)

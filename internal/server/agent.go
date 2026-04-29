@@ -19,27 +19,39 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		cfg, _ := agent.LoadConfig(ctx, s.store)
 		writeJSON(w, map[string]any{
-			"enabled":       cfg.Enabled,
-			"system_prompt": cfg.SystemPrompt,
-			"flow_steps":    cfg.FlowSteps,
-			"model":         cfg.Model,
+			"enabled":             cfg.Enabled,
+			"system_prompt":       cfg.SystemPrompt,
+			"flow_steps":          cfg.FlowSteps,
+			"model":               cfg.Model,
+			"global_reply_mode":   cfg.GlobalReplyMode,
+			"owner_jid":           cfg.OwnerJID,
+			"auto_sync_frequency": cfg.AutoSyncFrequency,
 		})
 	case http.MethodPost:
 		var body struct {
-			Enabled      bool              `json:"enabled"`
-			SystemPrompt string            `json:"system_prompt"`
-			FlowSteps    []agent.FlowStep  `json:"flow_steps"`
-			Model        string            `json:"model"`
+			Enabled           bool             `json:"enabled"`
+			SystemPrompt      string           `json:"system_prompt"`
+			FlowSteps         []agent.FlowStep `json:"flow_steps"`
+			Model             string           `json:"model"`
+			GlobalReplyMode   string           `json:"global_reply_mode"`
+			OwnerJID          string           `json:"owner_jid"`
+			AutoSyncFrequency string           `json:"auto_sync_frequency"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": "invalid JSON"})
 			return
 		}
 		cfg := agent.Config{
-			Enabled:      body.Enabled,
-			SystemPrompt: body.SystemPrompt,
-			FlowSteps:    body.FlowSteps,
-			Model:        body.Model,
+			Enabled:           body.Enabled,
+			SystemPrompt:      body.SystemPrompt,
+			FlowSteps:         body.FlowSteps,
+			Model:             body.Model,
+			GlobalReplyMode:   body.GlobalReplyMode,
+			OwnerJID:          body.OwnerJID,
+			AutoSyncFrequency: body.AutoSyncFrequency,
+		}
+		if cfg.GlobalReplyMode == "" {
+			cfg.GlobalReplyMode = "auto"
 		}
 		if cfg.Model == "" {
 			cfg.Model = claude.DefaultModel
