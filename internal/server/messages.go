@@ -11,7 +11,7 @@ import (
 )
 
 // GET /messages — page
-func (s *Server) handleMessagesPage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMessagesPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(messagesPage()))
 }
