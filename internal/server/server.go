@@ -40,6 +40,7 @@ type Server struct {
 	listener      net.Listener
 	tlsListener   net.Listener
 	mu            sync.Mutex
+	sessions      *sessionStore
 }
 
 // agentRunner is a minimal interface so server.go doesn't import the agent package.
@@ -50,7 +51,7 @@ func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
-	s := &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port}
+	s := &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port, sessions: newSessionStore()}
 	s.batchQueue = batch.NewQueue(s.executeBatchJob)
 	return s
 }
@@ -113,7 +114,7 @@ func (s *Server) executeBatchJob(ctx context.Context, jobType batch.JobType, pla
 }
 
 // buildMux creates the HTTP route mux. Shared between HTTP and HTTPS servers.
-func (s *Server) buildMux() *http.ServeMux {
+func (s *Server) buildMux() http.Handler {
 	mux := http.NewServeMux()
 
 	// Shared static assets (theme CSS/JS)
@@ -214,7 +215,9 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("/mcp/sse", mcpHandler.HandleSSE)
 	mux.HandleFunc("/mcp/message", mcpHandler.HandleMessage)
 
-	return mux
+	mux.HandleFunc("/auth", s.handleAuth)
+	mux.HandleFunc("/login", s.handleLogin)
+	return s.sessionMiddleware(mux)
 }
 
 // Start begins listening on HTTP. It returns immediately; the server runs in the background.
