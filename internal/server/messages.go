@@ -146,6 +146,3 @@ func parsePendingReplyID(path, action string) (int64, error) {
 	s = strings.TrimSuffix(s, "/"+action)
 	return strconv.ParseInt(s, 10, 64)
 }
-
-// messagesPage returns the Messages tab HTML. Implemented in html_messages.go (Task 11).
-func messagesPage() string { return "<html><body>Messages (coming soon)</body></html>" }
