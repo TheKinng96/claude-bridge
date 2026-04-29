@@ -263,6 +263,3 @@ func extractContactJID(path string) string {
 	parts := strings.SplitN(s, "/", 2)
 	return parts[0]
 }
-
-// contactsPage returns the Contacts tab HTML. Implemented in html_contacts.go (Task 12).
-func contactsPage() string { return "<html><body>Contacts (coming soon)</body></html>" }
