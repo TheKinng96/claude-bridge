@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -103,8 +104,21 @@ code{background:#333;padding:2px 6px;border-radius:4px;font-family:monospace}
 </body>
 </html>`
 
+func isLocalhost(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	return host == "127.0.0.1" || host == "::1"
+}
+
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Local device (Mac Mini itself) always trusted — no login required.
+		if isLocalhost(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		path := r.URL.Path
 		// Allow: auth endpoints, static assets, MCP endpoints, all /api/ routes (used internally)
 		if path == "/auth" || path == "/login" || path == "/callback" ||
