@@ -35,14 +35,14 @@ var DefaultFlowSteps = []FlowStep{
 	{Name: "Redirect", Instruction: "If the client seems urgent or asks for immediate help, provide the sales team contact number from your knowledge base."},
 }
 
-// LoadConfig reads saved agent config. Returns zero Config if unset.
+// LoadConfig reads saved agent config. Returns defaults if unset.
 func LoadConfig(ctx context.Context, s *store.Store) (Config, error) {
 	cred, err := s.GetCredential(ctx, platformAgent)
-	if err != nil || cred == nil {
+	if err != nil {
 		return Config{}, err
 	}
 	var c Config
-	if cred.Extra != "" {
+	if cred != nil && cred.Extra != "" {
 		_ = json.Unmarshal([]byte(cred.Extra), &c)
 	}
 	if len(c.FlowSteps) == 0 {
