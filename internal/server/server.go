@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"claude-bridge/internal/batch"
+	"claude-bridge/internal/broadcast"
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
@@ -109,8 +110,65 @@ func (s *Server) executeBatchJob(ctx context.Context, jobType batch.JobType, pla
 		case batch.JobReplyComment:
 			return s.fb.Messenger.ReplyToComment(ctx, params["comment_id"], params["message"])
 		}
+	case "whatsapp":
+		switch jobType {
+		case batch.JobSendMessage:
+			return s.executeWhatsAppSend(ctx, params)
+		}
 	}
 	return fmt.Errorf("unsupported: %s/%s", platform, jobType)
+}
+
+// executeWhatsAppSend handles a single WhatsApp send job, optionally personalizing
+// the message via Claude before delivering it through the WhatsApp connector.
+//
+// Required params:   phone, message
+// Optional params:   from_jid, contact_name, personalize ("true"|"false"),
+//
+//	instructions, recent_msgs (newline-joined inbound history;
+//	individual messages must not contain embedded newlines)
+func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]string) error {
+	phone := params["phone"]
+	if phone == "" {
+		return fmt.Errorf("missing phone")
+	}
+
+	text := params["message"]
+	contactName := params["contact_name"]
+	if contactName == "" {
+		contactName = phone
+	}
+
+	// Render template placeholders for the non-personalized path.
+	// When personalize=true, Generate() does its own rendering on the raw template,
+	// so we pass params["message"] there to avoid a double-render.
+	text = broadcast.Render(text, map[string]string{
+		"name":      contactName,
+		"push_name": contactName,
+	})
+
+	// s.knowClient is reused for broadcast personalization — the server has no
+	// separate "agent" client; the knowledge subsystem's client is equivalent here.
+	if params["personalize"] == "true" && s.knowClient != nil {
+		var recent []string
+		if rm := params["recent_msgs"]; rm != "" {
+			recent = strings.Split(rm, "\n")
+		}
+		p := broadcast.Personalizer{Claude: s.knowClient}
+		// Generate never returns a non-nil error today (it logs and falls back to
+		// the rendered template), but check err defensively for future changes.
+		generated, err := p.Generate(ctx, broadcast.Input{
+			ContactName:    contactName,
+			BaseTemplate:   params["message"], // pass raw template; Generate renders
+			Instructions:   params["instructions"],
+			RecentMessages: recent,
+		})
+		if err == nil && generated != "" {
+			text = generated
+		}
+	}
+
+	return s.wa.SendMessage(phone, text, params["from_jid"])
 }
 
 // buildMux creates the HTTP route mux. Shared between HTTP and HTTPS servers.
