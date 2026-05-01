@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,14 +36,15 @@ const (
 
 // Job is a single action in a batch.
 type Job struct {
-	ID       int       `json:"id"`
-	Type     JobType   `json:"type"`
-	Platform string    `json:"platform"`
-	Params   map[string]string `json:"params"`
-	Status   JobStatus `json:"status"`
-	Error    string    `json:"error,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	ID         int               `json:"id"`
+	Type       JobType           `json:"type"`
+	Platform   string            `json:"platform"`
+	Params     map[string]string `json:"params"`
+	Notes      map[string]string `json:"notes,omitempty"` // tier, personalized_text, etc.
+	Status     JobStatus         `json:"status"`
+	Error      string            `json:"error,omitempty"`
+	StartedAt  *time.Time        `json:"started_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
 }
 
 // Batch is a group of jobs submitted together.
@@ -107,11 +109,22 @@ func (q *Queue) Submit(platform string, jobType JobType, items []map[string]stri
 	}
 
 	for i, params := range items {
+		var notes map[string]string
+		for k, v := range params {
+			if rest, ok := strings.CutPrefix(k, "_note_"); ok {
+				if notes == nil {
+					notes = make(map[string]string)
+				}
+				notes[rest] = v
+				delete(params, k)
+			}
+		}
 		batch.Jobs = append(batch.Jobs, &Job{
 			ID:       i + 1,
 			Type:     jobType,
 			Platform: platform,
 			Params:   params,
+			Notes:    notes,
 			Status:   StatusPending,
 		})
 	}
