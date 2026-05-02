@@ -358,6 +358,49 @@ func getTools() []tool {
 			},
 		},
 		{
+			Name:        "batch_whatsapp_messages",
+			Description: "Submit a WhatsApp broadcast as a single batch. The Claude Bridge app loops through recipients in the background with safe per-tier delays (Active 30-60s, Quiet 60-120s, New 120-300s) to avoid Meta's bulk-send detection. When personalize=true, each message is rephrased by Claude per contact using their name and recent messages. Returns batch_id immediately. Track live progress at http://127.0.0.1:10002/broadcasts/{batch_id} or via get_batch_status.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"recipients": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of recipient objects: {phone, contact_name (optional), from_jid (optional)}",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"phone":        map[string]interface{}{"type": "string"},
+								"contact_name": map[string]interface{}{"type": "string"},
+								"from_jid":     map[string]interface{}{"type": "string"},
+							},
+							"required": []string{"phone"},
+						},
+					},
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "Base message template. Supports {{name}} and {{push_name}} placeholders.",
+					},
+					"personalize": map[string]interface{}{
+						"type":        "boolean",
+						"description": "If true, Claude rephrases the message per contact for naturalness. Default false.",
+					},
+					"instructions": map[string]interface{}{
+						"type":        "string",
+						"description": "Tone/style guidance for personalization (e.g. 'warm and informal'). Ignored if personalize=false.",
+					},
+					"min_delay_seconds": map[string]interface{}{
+						"type":        "integer",
+						"description": "Override min delay between sends. Default = tier-based (recommended). Setting below 15s greatly raises ban risk.",
+					},
+					"max_delay_seconds": map[string]interface{}{
+						"type":        "integer",
+						"description": "Override max delay between sends. Default = tier-based.",
+					},
+				},
+				Required: []string{"recipients", "message"},
+			},
+		},
+		{
 			Name:        "get_batch_status",
 			Description: "Check the progress of a batch operation. Returns how many jobs are completed, running, pending, or failed.",
 			InputSchema: inputSchema{
@@ -365,7 +408,7 @@ func getTools() []tool {
 				Properties: map[string]interface{}{
 					"batch_id": map[string]interface{}{
 						"type":        "string",
-						"description": "The batch ID returned from a batch_facebook_posts or batch_facebook_messages call",
+						"description": "The batch ID returned from batch_facebook_posts, batch_facebook_messages, or batch_whatsapp_messages",
 					},
 				},
 				Required: []string{"batch_id"},
@@ -511,6 +554,8 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 		return e.batchFBPosts(args)
 	case "batch_facebook_messages":
 		return e.batchFBMessages(args)
+	case "batch_whatsapp_messages":
+		return e.batchWAMessages(args)
 	case "get_batch_status":
 		return e.getBatchStatus(args)
 	case "cancel_batch":
@@ -920,6 +965,89 @@ func (e *toolExecutor) batchFBMessages(args json.RawMessage) callToolResult {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
+}
+
+// batchWAMessages submits a WhatsApp broadcast batch. Each recipient becomes
+// a job with phone, contact_name, from_jid, message, and (optional) personalize
+// + instructions params. The server-side executor (executeWhatsAppSend) renders
+// templates and optionally personalizes via Claude before sending.
+func (e *toolExecutor) batchWAMessages(args json.RawMessage) callToolResult {
+	var params struct {
+		Recipients   []map[string]any `json:"recipients"`
+		Message      string           `json:"message"`
+		Personalize  bool             `json:"personalize"`
+		Instructions string           `json:"instructions"`
+		MinDelay     int              `json:"min_delay_seconds"`
+		MaxDelay     int              `json:"max_delay_seconds"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("Invalid arguments: need 'recipients' array and 'message'")
+	}
+	if len(params.Recipients) == 0 {
+		return errorResult("'recipients' array is required and must not be empty")
+	}
+	if params.Message == "" {
+		return errorResult("'message' is required")
+	}
+
+	items := make([]map[string]string, 0, len(params.Recipients))
+	for _, r := range params.Recipients {
+		phone, _ := r["phone"].(string)
+		if phone == "" {
+			continue
+		}
+		name, _ := r["contact_name"].(string)
+		fromJID, _ := r["from_jid"].(string)
+
+		item := map[string]string{
+			"phone":        phone,
+			"contact_name": name,
+			"from_jid":     fromJID,
+			"message":      params.Message,
+		}
+		if params.Personalize {
+			item["personalize"] = "true"
+			if params.Instructions != "" {
+				item["instructions"] = params.Instructions
+			}
+		}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return errorResult("No valid recipients (each must have a 'phone' field)")
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"platform":          "whatsapp",
+		"type":              "send_message",
+		"items":             items,
+		"min_delay_seconds": params.MinDelay,
+		"max_delay_seconds": params.MaxDelay,
+	})
+	resp, err := e.client.Post(e.baseURL+"/api/batch/submit", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge: %v", err))
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result map[string]any
+	_ = json.Unmarshal(body, &result)
+	if id, _ := result["batch_id"].(string); id != "" {
+		skipped := len(params.Recipients) - len(items)
+		text := fmt.Sprintf(
+			"Submitted %d WhatsApp messages. Batch ID: %s\nLive progress: %s/broadcasts/%s",
+			len(items), id, e.baseURL, id,
+		)
+		if skipped > 0 {
+			text += fmt.Sprintf("\nNote: %d recipient(s) skipped (missing phone)", skipped)
+		}
+		if warn, _ := result["warning"].(string); warn != "" {
+			text += "\nWarning: " + warn
+		}
+		return callToolResult{Content: []contentItem{{Type: "text", Text: text}}}
+	}
 	return callToolResult{Content: []contentItem{{Type: "text", Text: string(body)}}}
 }
 
