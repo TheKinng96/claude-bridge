@@ -975,6 +975,38 @@ func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For WhatsApp batches, auto-classify recipients into tiers (Active/Quiet/New)
+	// based on cached message history. The tier is stashed per-job under _note_tier
+	// so the progress page can show it. The batch's min/max delay defaults to the
+	// worst tier present, unless the caller explicitly set them.
+	if body.Platform == "whatsapp" {
+		worst := broadcast.TierActive // assume safest start
+		for _, item := range body.Items {
+			phone := item["phone"]
+			if phone == "" {
+				continue
+			}
+			stats, err := broadcast.FetchStats(r.Context(), s.store, phone)
+			if err != nil {
+				// Storage error is non-fatal — tag this recipient as "new" (safest) but only
+				// update worst if it's actually worse than what we've seen.
+				item["_note_tier"] = string(broadcast.TierNew)
+				if tierRank(broadcast.TierNew) > tierRank(worst) {
+					worst = broadcast.TierNew
+				}
+				continue
+			}
+			tier := broadcast.Classify(stats)
+			item["_note_tier"] = string(tier)
+			if tierRank(tier) > tierRank(worst) {
+				worst = tier
+			}
+		}
+		if body.MinDelay == 0 && body.MaxDelay == 0 {
+			body.MinDelay, body.MaxDelay = broadcast.DelayFor(worst)
+		}
+	}
+
 	batchID := s.batchQueue.Submit(body.Platform, batch.JobType(body.Type), body.Items, body.MinDelay, body.MaxDelay)
 	writeJSON(w, map[string]interface{}{
 		"ok":       true,
@@ -982,6 +1014,20 @@ func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
 		"total":    len(body.Items),
 		"message":  fmt.Sprintf("Batch submitted: %d %s jobs queued with %d-%ds delay between each", len(body.Items), body.Type, body.MinDelay, body.MaxDelay),
 	})
+}
+
+// tierRank ranks tiers from safest (0) to highest-risk (2) so the WhatsApp
+// auto-tier logic can pick the worst tier present in a batch.
+func tierRank(t broadcast.Tier) int {
+	switch t {
+	case broadcast.TierActive:
+		return 0
+	case broadcast.TierQuiet:
+		return 1
+	case broadcast.TierNew:
+		return 2
+	}
+	return 1 // unknown → treat as Quiet (mid-risk, conservative)
 }
 
 func (s *Server) handleBatchStatus(w http.ResponseWriter, r *http.Request) {
