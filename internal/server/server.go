@@ -264,6 +264,9 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/groups", s.handleGroupsRoute)
 	mux.HandleFunc("/api/groups/", s.handleGroupsSubroute)
 
+	// Broadcast progress page
+	mux.HandleFunc("/broadcasts/", s.handleBroadcastProgress)
+
 	// Messages (pending replies)
 	mux.HandleFunc("/messages", s.handleMessagesPage)
 	mux.HandleFunc("/api/pending-replies", s.handleListPendingReplies)
