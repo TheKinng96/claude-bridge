@@ -237,6 +237,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/batch/status", s.handleBatchStatus)
 	mux.HandleFunc("/api/batch/list", s.handleBatchList)
 	mux.HandleFunc("/api/batch/cancel", s.handleBatchCancel)
+	mux.HandleFunc("/api/batch/events", s.handleBatchEvents)
 
 	// OAuth callback (served on HTTPS for Facebook redirect)
 	mux.HandleFunc("/callback", s.handleFBMessengerOAuthCallback)
