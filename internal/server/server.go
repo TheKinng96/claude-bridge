@@ -164,6 +164,16 @@ func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]stri
 		var recent []string
 		if rm := params["recent_msgs"]; rm != "" {
 			recent = strings.Split(rm, "\n")
+		} else if s.store != nil {
+			// Auto-fetch recent inbound messages so Claude has context for personalization.
+			// 5 recent messages are enough — more would inflate prompts without much benefit.
+			if msgs, err := s.store.RecentInboundMessages(ctx, phone, 5); err == nil {
+				for _, m := range msgs {
+					// Inbound bodies may contain newlines; collapse them so individual messages
+					// render on single lines in the personalizer's prompt.
+					recent = append(recent, strings.ReplaceAll(m, "\n", " "))
+				}
+			}
 		}
 		p := broadcast.Personalizer{Claude: s.knowClient}
 		// Generate never returns a non-nil error today (it logs and falls back to
