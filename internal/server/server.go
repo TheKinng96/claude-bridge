@@ -42,6 +42,9 @@ type Server struct {
 	tlsListener   net.Listener
 	mu            sync.Mutex
 	sessions      *sessionStore
+
+	dailySendCount   map[string]int // key = YYYY-MM-DD; in-memory, resets on restart
+	dailySendCountMu sync.Mutex
 }
 
 // agentRunner is a minimal interface so server.go doesn't import the agent package.
@@ -52,7 +55,15 @@ func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
-	s := &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port, sessions: newSessionStore()}
+	s := &Server{
+		wa:             wa,
+		fb:             fb,
+		store:          appStore,
+		browserEngine:  browserEngine,
+		port:           port,
+		sessions:       newSessionStore(),
+		dailySendCount: make(map[string]int),
+	}
 	s.batchQueue = batch.NewQueue(s.executeBatchJob)
 	return s
 }
@@ -954,6 +965,11 @@ func (s *Server) handleFBMessengerAnalytics(w http.ResponseWriter, r *http.Reque
 
 // --- Batch queue handlers ---
 
+const (
+	whatsappSoftDailyCap = 80
+	whatsappHardDailyCap = 200
+)
+
 func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
@@ -1007,13 +1023,42 @@ func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Daily cap enforcement (WhatsApp only). In-memory counter, resets implicitly
+	// at midnight by date-string change. Soft cap warns; hard cap rejects.
+	var warning string
+	if body.Platform == "whatsapp" {
+		today := time.Now().Format("2006-01-02")
+		s.dailySendCountMu.Lock()
+		projected := s.dailySendCount[today] + len(body.Items)
+		if projected > whatsappHardDailyCap {
+			s.dailySendCountMu.Unlock()
+			w.WriteHeader(http.StatusTooManyRequests)
+			writeJSON(w, map[string]interface{}{
+				"ok":    false,
+				"error": fmt.Sprintf("daily cap exceeded (%d/%d) — wait until tomorrow or reduce batch size", projected, whatsappHardDailyCap),
+			})
+			return
+		}
+		// Counter is incremented before Submit so concurrent or retried requests
+		// cannot race past the cap; over-counting on Submit failures is intentional.
+		s.dailySendCount[today] = projected
+		s.dailySendCountMu.Unlock()
+		if projected > whatsappSoftDailyCap {
+			warning = fmt.Sprintf("daily soft cap exceeded (%d/%d) — additional sends raise Meta detection risk", projected, whatsappHardDailyCap)
+		}
+	}
+
 	batchID := s.batchQueue.Submit(body.Platform, batch.JobType(body.Type), body.Items, body.MinDelay, body.MaxDelay)
-	writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"ok":       true,
 		"batch_id": batchID,
 		"total":    len(body.Items),
 		"message":  fmt.Sprintf("Batch submitted: %d %s jobs queued with %d-%ds delay between each", len(body.Items), body.Type, body.MinDelay, body.MaxDelay),
-	})
+	}
+	if warning != "" {
+		resp["warning"] = warning
+	}
+	writeJSON(w, resp)
 }
 
 // tierRank ranks tiers from safest (0) to highest-risk (2) so the WhatsApp
