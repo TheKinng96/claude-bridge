@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -397,6 +398,22 @@ func (s *Store) migrate() error {
 			expires_at DATETIME NOT NULL,
 			used_at    DATETIME
 		)`,
+
+		`CREATE TABLE IF NOT EXISTS client_profiles (
+			jid           TEXT PRIMARY KEY,
+			display_name  TEXT NOT NULL DEFAULT '',
+			aliases       TEXT NOT NULL DEFAULT '[]',
+			language      TEXT NOT NULL DEFAULT '',
+			role          TEXT NOT NULL DEFAULT '',
+			family_notes  TEXT NOT NULL DEFAULT '',
+			interests     TEXT NOT NULL DEFAULT '[]',
+			last_topics   TEXT NOT NULL DEFAULT '[]',
+			custom_notes  TEXT NOT NULL DEFAULT '',
+			updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			extracted_at  DATETIME
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_client_profiles_role ON client_profiles(role)`,
 
 		`CREATE TABLE IF NOT EXISTS dispatch_log (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1659,6 +1676,159 @@ func (s *Store) SummarizeInbox(ctx context.Context, hours int, excludeJIDs []str
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// ClientProfile is a per-contact enrichment record used by the dispatcher,
+// personalized broadcasts, and Obsidian sync. Slice fields persist as JSON.
+type ClientProfile struct {
+	JID         string     `json:"jid"`
+	DisplayName string     `json:"display_name"`
+	Aliases     []string   `json:"aliases"`
+	Language    string     `json:"language"`
+	Role        string     `json:"role"`         // "lead", "client", "family", etc.
+	FamilyNotes string     `json:"family_notes"`
+	Interests   []string   `json:"interests"`
+	LastTopics  []string   `json:"last_topics"`  // most-recent first
+	CustomNotes string     `json:"custom_notes"` // owner-edited, preserved by extractor
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ExtractedAt *time.Time `json:"extracted_at,omitempty"`
+}
+
+// GetClientProfile returns the profile for jid, or nil if none exists.
+func (s *Store) GetClientProfile(ctx context.Context, jid string) (*ClientProfile, error) {
+	var p ClientProfile
+	var aliasesJSON, interestsJSON, topicsJSON string
+	var extractedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx,
+		`SELECT jid, display_name, aliases, language, role, family_notes,
+		        interests, last_topics, custom_notes, updated_at, extracted_at
+		 FROM client_profiles WHERE jid=?`, jid).
+		Scan(&p.JID, &p.DisplayName, &aliasesJSON, &p.Language, &p.Role, &p.FamilyNotes,
+			&interestsJSON, &topicsJSON, &p.CustomNotes, &p.UpdatedAt, &extractedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(aliasesJSON), &p.Aliases)
+	_ = json.Unmarshal([]byte(interestsJSON), &p.Interests)
+	_ = json.Unmarshal([]byte(topicsJSON), &p.LastTopics)
+	if extractedAt.Valid {
+		p.ExtractedAt = &extractedAt.Time
+	}
+	return &p, nil
+}
+
+// UpsertClientProfile inserts or replaces a profile.
+func (s *Store) UpsertClientProfile(ctx context.Context, p *ClientProfile) error {
+	aliases, _ := json.Marshal(p.Aliases)
+	interests, _ := json.Marshal(p.Interests)
+	topics, _ := json.Marshal(p.LastTopics)
+	var extractedAt any
+	if p.ExtractedAt != nil {
+		extractedAt = *p.ExtractedAt
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO client_profiles (
+			jid, display_name, aliases, language, role, family_notes,
+			interests, last_topics, custom_notes, updated_at, extracted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+		 ON CONFLICT(jid) DO UPDATE SET
+			display_name = excluded.display_name,
+			aliases      = excluded.aliases,
+			language     = excluded.language,
+			role         = excluded.role,
+			family_notes = excluded.family_notes,
+			interests    = excluded.interests,
+			last_topics  = excluded.last_topics,
+			custom_notes = excluded.custom_notes,
+			updated_at   = CURRENT_TIMESTAMP,
+			extracted_at = COALESCE(excluded.extracted_at, client_profiles.extracted_at)`,
+		p.JID, p.DisplayName, string(aliases), p.Language, p.Role, p.FamilyNotes,
+		string(interests), string(topics), p.CustomNotes, extractedAt)
+	return err
+}
+
+// ListClientProfiles returns profiles filtered by role, newest first.
+// Empty role = all profiles.
+func (s *Store) ListClientProfiles(ctx context.Context, role string, limit int) ([]ClientProfile, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var rows *sql.Rows
+	var err error
+	if role == "" {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT jid, display_name, aliases, language, role, family_notes,
+			        interests, last_topics, custom_notes, updated_at, extracted_at
+			 FROM client_profiles ORDER BY updated_at DESC LIMIT ?`, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT jid, display_name, aliases, language, role, family_notes,
+			        interests, last_topics, custom_notes, updated_at, extracted_at
+			 FROM client_profiles WHERE role=? ORDER BY updated_at DESC LIMIT ?`, role, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ClientProfile
+	for rows.Next() {
+		var p ClientProfile
+		var aliasesJSON, interestsJSON, topicsJSON string
+		var extractedAt sql.NullTime
+		if err := rows.Scan(&p.JID, &p.DisplayName, &aliasesJSON, &p.Language, &p.Role, &p.FamilyNotes,
+			&interestsJSON, &topicsJSON, &p.CustomNotes, &p.UpdatedAt, &extractedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(aliasesJSON), &p.Aliases)
+		_ = json.Unmarshal([]byte(interestsJSON), &p.Interests)
+		_ = json.Unmarshal([]byte(topicsJSON), &p.LastTopics)
+		if extractedAt.Valid {
+			p.ExtractedAt = &extractedAt.Time
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// FindClientProfileByName matches a free-form name against display_name or
+// any alias (case-insensitive). Used by the dispatcher when the owner refers
+// to a contact by name rather than JID.
+func (s *Store) FindClientProfileByName(ctx context.Context, name string) (*ClientProfile, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT jid, display_name, aliases, language, role, family_notes,
+		        interests, last_topics, custom_notes, updated_at, extracted_at
+		 FROM client_profiles
+		 WHERE LOWER(display_name) = ? OR LOWER(aliases) LIKE ?
+		 LIMIT 1`,
+		name, "%\""+name+"\"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, nil
+	}
+	var p ClientProfile
+	var aliasesJSON, interestsJSON, topicsJSON string
+	var extractedAt sql.NullTime
+	if err := rows.Scan(&p.JID, &p.DisplayName, &aliasesJSON, &p.Language, &p.Role, &p.FamilyNotes,
+		&interestsJSON, &topicsJSON, &p.CustomNotes, &p.UpdatedAt, &extractedAt); err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(aliasesJSON), &p.Aliases)
+	_ = json.Unmarshal([]byte(interestsJSON), &p.Interests)
+	_ = json.Unmarshal([]byte(topicsJSON), &p.LastTopics)
+	if extractedAt.Valid {
+		p.ExtractedAt = &extractedAt.Time
+	}
+	return &p, nil
 }
 
 // DispatchLogEntry is one row of the audit log.
