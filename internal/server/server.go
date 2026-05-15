@@ -63,6 +63,22 @@ func (s *Server) SetTelegram(c *telegram.Client) { s.tg = c }
 // can submit jobs directly without going through the HTTP layer.
 func (s *Server) BatchQueue() *batch.Queue { return s.batchQueue }
 
+// profileSnapshotFromStore flattens a store.ClientProfile into the broadcast
+// package's ProfileSnapshot so broadcast doesn't have to import store.
+func profileSnapshotFromStore(p *store.ClientProfile) *broadcast.ProfileSnapshot {
+	if p == nil {
+		return nil
+	}
+	return &broadcast.ProfileSnapshot{
+		Role:        p.Role,
+		Language:    p.Language,
+		FamilyNotes: p.FamilyNotes,
+		Interests:   p.Interests,
+		LastTopics:  p.LastTopics,
+		CustomNotes: p.CustomNotes,
+	}
+}
+
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
 	s := &Server{
@@ -185,6 +201,17 @@ func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]stri
 				}
 			}
 		}
+		// Pull client_profile if one exists. Phone is just the number; JID adds
+		// the whatsapp.net suffix. Profile lookup tolerates either by passing
+		// the phone through GetClientProfile and FindClientProfileByName.
+		var snap *broadcast.ProfileSnapshot
+		if s.store != nil {
+			jid := phone + "@s.whatsapp.net"
+			if cp, _ := s.store.GetClientProfile(ctx, jid); cp != nil {
+				snap = profileSnapshotFromStore(cp)
+			}
+		}
+
 		p := broadcast.Personalizer{Claude: s.knowClient}
 		// Generate never returns a non-nil error today (it logs and falls back to
 		// the rendered template), but check err defensively for future changes.
@@ -193,6 +220,7 @@ func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]stri
 			BaseTemplate:   params["message"], // pass raw template; Generate renders
 			Instructions:   params["instructions"],
 			RecentMessages: recent,
+			Profile:        snap,
 		})
 		if err == nil && generated != "" {
 			text = generated
