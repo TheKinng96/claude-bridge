@@ -14,6 +14,7 @@ import (
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
+	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
@@ -22,6 +23,34 @@ import (
 	"claude-bridge/internal/tray"
 	"claude-bridge/internal/updater"
 )
+
+// bootTelegram constructs and starts a Telegram client from saved agent
+// config. Returns nil if no token is configured or no owner IDs allowlisted.
+// In P1 the handler is a bare echo — P2 will swap in the dispatch loop.
+func bootTelegram(ctx context.Context, appStore *store.Store) *telegram.Client {
+	cfg, err := agent.LoadConfig(ctx, appStore)
+	if err != nil {
+		log.Printf("telegram: LoadConfig failed: %v", err)
+		return nil
+	}
+	if cfg.TelegramBotToken == "" {
+		return nil
+	}
+	if len(cfg.OwnerTelegramIDs) == 0 {
+		log.Printf("telegram: bot token set but no owner_telegram_ids — bot will drop all messages")
+	}
+	c := telegram.New(cfg.TelegramBotToken, cfg.OwnerTelegramIDs)
+	c.SetHandler(func(ctx context.Context, m *telegram.Message) string {
+		// P1 echo handler — swapped to dispatch in P2.
+		return "Got: " + m.Text
+	})
+	go func() {
+		if err := c.Start(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("telegram: stopped: %v", err)
+		}
+	}()
+	return c
+}
 
 // version is embedded at build time via -ldflags "-X main.version=<git-sha>".
 var version = "dev"
@@ -127,6 +156,15 @@ func main() {
 	srv.SetKnowledge(knowClient, knowPipeline, knowWatcher)
 	srv.SetEmbedder(knowEmbedder)
 	srv.SetAgent(agentRunner)
+
+	// Start Telegram connector if configured. Owner-allowlisted long-poll;
+	// P1 ships an echo handler so we can verify the wiring before P2 swaps in
+	// the dispatch loop.
+	tgClient := bootTelegram(context.Background(), appStore)
+	if tgClient != nil {
+		srv.SetTelegram(tgClient)
+	}
+
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
