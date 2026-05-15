@@ -20,6 +20,7 @@ import (
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
+	"claude-bridge/internal/obsidian"
 	"claude-bridge/internal/profile"
 	"claude-bridge/internal/server"
 	"claude-bridge/internal/store"
@@ -45,6 +46,21 @@ type dispatchExecutor struct {
 	bq        *batch.Queue
 	store     *store.Store
 	extractor *profile.Extractor
+	obsidian  *obsidian.Writer // nil-safe — Writer methods no-op when path is empty
+}
+
+// syncObsidian writes the profile to the Obsidian vault if a writer is wired.
+// Failures are logged but never returned — Obsidian is non-critical.
+func (e *dispatchExecutor) syncObsidian(p *store.ClientProfile) {
+	if e.obsidian == nil || p == nil {
+		return
+	}
+	if err := e.obsidian.WriteClient(p); err != nil {
+		log.Printf("[obsidian] write client failed: %v", err)
+	}
+	if err := e.obsidian.WriteTopicStubs(p.LastTopics); err != nil {
+		log.Printf("[obsidian] write topics failed: %v", err)
+	}
 }
 
 func (e *dispatchExecutor) SendWhatsAppMessage(ctx context.Context, phone, message, fromJID string) error {
@@ -133,7 +149,11 @@ func (e *dispatchExecutor) UpdateProfile(ctx context.Context, jid, field, value 
 	case "custom_notes":
 		existing.CustomNotes = value
 	}
-	return e.store.UpsertClientProfile(ctx, existing)
+	if err := e.store.UpsertClientProfile(ctx, existing); err != nil {
+		return err
+	}
+	e.syncObsidian(existing)
+	return nil
 }
 
 func (e *dispatchExecutor) ExtractProfile(ctx context.Context, jid string) (*agent.ProfileInfo, error) {
@@ -163,6 +183,7 @@ func (e *dispatchExecutor) ExtractProfile(ctx context.Context, jid string) (*age
 	if err := e.store.UpsertClientProfile(ctx, updated); err != nil {
 		return nil, err
 	}
+	e.syncObsidian(updated)
 	return profileToInfo(updated), nil
 }
 
@@ -345,11 +366,20 @@ func main() {
 
 	// Build the dispatcher (Claude + executor + audit log). Wired into both
 	// the WhatsApp Runner (for owner-JID messages) and the Telegram connector
-	// (for any allowlisted user).
+	// (for any allowlisted user). Obsidian writer is constructed from saved
+	// config; an empty path makes it a silent no-op.
 	extractor := profile.NewExtractor(knowClient)
+	dispatchCfg, _ := agent.LoadConfig(context.Background(), appStore)
+	obsidianWriter := obsidian.New(dispatchCfg.ObsidianVaultPath)
 	dispatcher := agent.NewDispatcher(
 		knowClient,
-		&dispatchExecutor{wa: wa, bq: srv.BatchQueue(), store: appStore, extractor: extractor},
+		&dispatchExecutor{
+			wa:        wa,
+			bq:        srv.BatchQueue(),
+			store:     appStore,
+			extractor: extractor,
+			obsidian:  obsidianWriter,
+		},
 		appStore,
 	)
 	agentRunner.SetDispatcher(dispatcher)

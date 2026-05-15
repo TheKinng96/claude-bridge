@@ -37,6 +37,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			"auto_sync_frequency": cfg.AutoSyncFrequency,
 			"telegram_bot_token":  cfg.TelegramBotToken,
 			"owner_telegram_ids":  ownerTGIDs,
+			"obsidian_vault_path": cfg.ObsidianVaultPath,
 		})
 	case http.MethodPost:
 		var body struct {
@@ -49,6 +50,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			AutoSyncFrequency string           `json:"auto_sync_frequency"`
 			TelegramBotToken  string           `json:"telegram_bot_token"`
 			OwnerTelegramIDs  []int64          `json:"owner_telegram_ids"`
+			ObsidianVaultPath string           `json:"obsidian_vault_path"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": "invalid JSON"})
@@ -64,6 +66,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			AutoSyncFrequency: body.AutoSyncFrequency,
 			TelegramBotToken:  body.TelegramBotToken,
 			OwnerTelegramIDs:  body.OwnerTelegramIDs,
+			ObsidianVaultPath: body.ObsidianVaultPath,
 		}
 		if cfg.GlobalReplyMode == "" {
 			cfg.GlobalReplyMode = "auto"

@@ -139,6 +139,15 @@ const agentHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="card">
+		<h3>Obsidian Sync</h3>
+		<div class="help">Optional. When set, the server writes one markdown file per client into <code>&lt;vault&gt;/Clients/</code> with wikilinks to <code>&lt;vault&gt;/Topics/</code>. Open the vault in Obsidian to see the graph view. <strong>One-way</strong> — manual edits outside the "Custom Notes" section are overwritten on next profile update.</div>
+		<div class="form-row">
+			<label for="obsidianVault">Vault path</label>
+			<input id="obsidianVault" placeholder="/Users/me/ObsidianVault" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+		</div>
+	</div>
+
+	<div class="card">
 		<h3>Conversation Flow</h3>
 		<div class="help">Define stages the agent follows in order. Claude uses these as a guide — not rigid rules — adapting naturally to the conversation.</div>
 		<div id="flowSteps"></div>
@@ -191,6 +200,7 @@ async function loadConfig() {
 		ownerJIDs = j.owner_jids || [];
 		document.getElementById('tgToken').value = j.telegram_bot_token || '';
 		document.getElementById('tgOwnerIDs').value = (j.owner_telegram_ids || []).join(', ');
+		document.getElementById('obsidianVault').value = j.obsidian_vault_path || '';
 		renderSteps();
 		renderAdminChips();
 	} catch(e) { console.error(e); }
@@ -325,6 +335,7 @@ async function saveConfig() {
 		owner_jids: ownerJIDs,
 		telegram_bot_token: document.getElementById('tgToken').value.trim(),
 		owner_telegram_ids: tgIDs,
+		obsidian_vault_path: document.getElementById('obsidianVault').value.trim(),
 	};
 	const r = await fetch('/api/agent/config', {
 		method: 'POST',
