@@ -221,6 +221,11 @@ const dashboardHTML = `<!DOCTYPE html>
 	<div class="activity-feed" id="activityFeed">
 		<div class="empty-state">No activity yet. Connect a channel to get started.</div>
 	</div>
+
+	<h2 class="section-title" style="margin-top:32px;">Recent Broadcasts</h2>
+	<div class="card" id="broadcastsCard">
+		<div id="broadcasts-list"><p style="color:var(--text-muted);font-size:14px;">No broadcasts yet.</p></div>
+	</div>
 </div>
 
 <!-- Health check overlay (shown once per day on load) -->
@@ -595,6 +600,36 @@ function dismissHealth() {
 
 // Run on load.
 runHealthCheck();
+
+async function loadBroadcasts() {
+	try {
+		const r = await fetch('/api/batch/list?platform=whatsapp');
+		const data = await r.json();
+		const list = document.getElementById('broadcasts-list');
+		if (!list) return;
+		if (!data.batches || !data.batches.length) {
+			list.innerHTML = '<p style="color:var(--text-muted);font-size:14px;">No broadcasts yet.</p>';
+			return;
+		}
+		// Sort ascending by created_at, take last 5, reverse for newest-first display
+		const sorted = data.batches.slice().sort((a, b) =>
+		    new Date(a.created_at) - new Date(b.created_at));
+		const recent = sorted.slice(-5).reverse();
+		list.innerHTML = recent.map(b =>
+			'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px;">' +
+			'<a href="/broadcasts/' + encodeURIComponent(b.id) + '" style="color:var(--accent);text-decoration:none;font-family:monospace;font-size:12px;">' + escapeHTML(b.id) + '</a>' +
+			'<span style="color:var(--text-muted);font-size:13px;">' + (b.progress || 0) + '/' + (b.total || 0) + ' — ' + escapeHTML(b.status || '') + '</span>' +
+			'</div>'
+		).join('');
+	} catch (e) {
+		// Silent on transient errors; next interval retries.
+	}
+}
+function escapeHTML(s) {
+	return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+document.addEventListener('DOMContentLoaded', loadBroadcasts);
+setInterval(loadBroadcasts, 10000);
 </script>
 </body>
 </html>`

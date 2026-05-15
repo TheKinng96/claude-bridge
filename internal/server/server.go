@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"claude-bridge/internal/batch"
+	"claude-bridge/internal/broadcast"
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
@@ -41,6 +42,9 @@ type Server struct {
 	tlsListener   net.Listener
 	mu            sync.Mutex
 	sessions      *sessionStore
+
+	dailySendCount   map[string]int // key = YYYY-MM-DD; in-memory, resets on restart
+	dailySendCountMu sync.Mutex
 }
 
 // agentRunner is a minimal interface so server.go doesn't import the agent package.
@@ -51,7 +55,15 @@ func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
-	s := &Server{wa: wa, fb: fb, store: appStore, browserEngine: browserEngine, port: port, sessions: newSessionStore()}
+	s := &Server{
+		wa:             wa,
+		fb:             fb,
+		store:          appStore,
+		browserEngine:  browserEngine,
+		port:           port,
+		sessions:       newSessionStore(),
+		dailySendCount: make(map[string]int),
+	}
 	s.batchQueue = batch.NewQueue(s.executeBatchJob)
 	return s
 }
@@ -109,8 +121,75 @@ func (s *Server) executeBatchJob(ctx context.Context, jobType batch.JobType, pla
 		case batch.JobReplyComment:
 			return s.fb.Messenger.ReplyToComment(ctx, params["comment_id"], params["message"])
 		}
+	case "whatsapp":
+		switch jobType {
+		case batch.JobSendMessage:
+			return s.executeWhatsAppSend(ctx, params)
+		}
 	}
 	return fmt.Errorf("unsupported: %s/%s", platform, jobType)
+}
+
+// executeWhatsAppSend handles a single WhatsApp send job, optionally personalizing
+// the message via Claude before delivering it through the WhatsApp connector.
+//
+// Required params:   phone, message
+// Optional params:   from_jid, contact_name, personalize ("true"|"false"),
+//
+//	instructions, recent_msgs (newline-joined inbound history;
+//	individual messages must not contain embedded newlines)
+func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]string) error {
+	phone := params["phone"]
+	if phone == "" {
+		return fmt.Errorf("missing phone")
+	}
+
+	text := params["message"]
+	contactName := params["contact_name"]
+	if contactName == "" {
+		contactName = phone
+	}
+
+	// Render template placeholders for the non-personalized path.
+	// When personalize=true, Generate() does its own rendering on the raw template,
+	// so we pass params["message"] there to avoid a double-render.
+	text = broadcast.Render(text, map[string]string{
+		"name":      contactName,
+		"push_name": contactName,
+	})
+
+	// s.knowClient is reused for broadcast personalization — the server has no
+	// separate "agent" client; the knowledge subsystem's client is equivalent here.
+	if params["personalize"] == "true" && s.knowClient != nil {
+		var recent []string
+		if rm := params["recent_msgs"]; rm != "" {
+			recent = strings.Split(rm, "\n")
+		} else if s.store != nil {
+			// Auto-fetch recent inbound messages so Claude has context for personalization.
+			// 5 recent messages are enough — more would inflate prompts without much benefit.
+			if msgs, err := s.store.RecentInboundMessages(ctx, phone, 5); err == nil {
+				for _, m := range msgs {
+					// Inbound bodies may contain newlines; collapse them so individual messages
+					// render on single lines in the personalizer's prompt.
+					recent = append(recent, strings.ReplaceAll(m, "\n", " "))
+				}
+			}
+		}
+		p := broadcast.Personalizer{Claude: s.knowClient}
+		// Generate never returns a non-nil error today (it logs and falls back to
+		// the rendered template), but check err defensively for future changes.
+		generated, err := p.Generate(ctx, broadcast.Input{
+			ContactName:    contactName,
+			BaseTemplate:   params["message"], // pass raw template; Generate renders
+			Instructions:   params["instructions"],
+			RecentMessages: recent,
+		})
+		if err == nil && generated != "" {
+			text = generated
+		}
+	}
+
+	return s.wa.SendMessage(phone, text, params["from_jid"])
 }
 
 // buildMux creates the HTTP route mux. Shared between HTTP and HTTPS servers.
@@ -179,6 +258,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/batch/status", s.handleBatchStatus)
 	mux.HandleFunc("/api/batch/list", s.handleBatchList)
 	mux.HandleFunc("/api/batch/cancel", s.handleBatchCancel)
+	mux.HandleFunc("/api/batch/events", s.handleBatchEvents)
 
 	// OAuth callback (served on HTTPS for Facebook redirect)
 	mux.HandleFunc("/callback", s.handleFBMessengerOAuthCallback)
@@ -204,6 +284,9 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/contacts/", s.handleContactsSubroute)
 	mux.HandleFunc("/api/groups", s.handleGroupsRoute)
 	mux.HandleFunc("/api/groups/", s.handleGroupsSubroute)
+
+	// Broadcast progress page
+	mux.HandleFunc("/broadcasts/", s.handleBroadcastProgress)
 
 	// Messages (pending replies)
 	mux.HandleFunc("/messages", s.handleMessagesPage)
@@ -892,6 +975,11 @@ func (s *Server) handleFBMessengerAnalytics(w http.ResponseWriter, r *http.Reque
 
 // --- Batch queue handlers ---
 
+const (
+	whatsappSoftDailyCap = 80
+	whatsappHardDailyCap = 200
+)
+
 func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
@@ -913,13 +1001,88 @@ func (s *Server) handleBatchSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For WhatsApp batches, auto-classify recipients into tiers (Active/Quiet/New)
+	// based on cached message history. The tier is stashed per-job under _note_tier
+	// so the progress page can show it. The batch's min/max delay defaults to the
+	// worst tier present, unless the caller explicitly set them.
+	if body.Platform == "whatsapp" {
+		worst := broadcast.TierActive // assume safest start
+		for _, item := range body.Items {
+			phone := item["phone"]
+			if phone == "" {
+				continue
+			}
+			stats, err := broadcast.FetchStats(r.Context(), s.store, phone)
+			if err != nil {
+				// Storage error is non-fatal — tag this recipient as "new" (safest) but only
+				// update worst if it's actually worse than what we've seen.
+				item["_note_tier"] = string(broadcast.TierNew)
+				if tierRank(broadcast.TierNew) > tierRank(worst) {
+					worst = broadcast.TierNew
+				}
+				continue
+			}
+			tier := broadcast.Classify(stats)
+			item["_note_tier"] = string(tier)
+			if tierRank(tier) > tierRank(worst) {
+				worst = tier
+			}
+		}
+		if body.MinDelay == 0 && body.MaxDelay == 0 {
+			body.MinDelay, body.MaxDelay = broadcast.DelayFor(worst)
+		}
+	}
+
+	// Daily cap enforcement (WhatsApp only). In-memory counter, resets implicitly
+	// at midnight by date-string change. Soft cap warns; hard cap rejects.
+	var warning string
+	if body.Platform == "whatsapp" {
+		today := time.Now().Format("2006-01-02")
+		s.dailySendCountMu.Lock()
+		projected := s.dailySendCount[today] + len(body.Items)
+		if projected > whatsappHardDailyCap {
+			s.dailySendCountMu.Unlock()
+			w.WriteHeader(http.StatusTooManyRequests)
+			writeJSON(w, map[string]interface{}{
+				"ok":    false,
+				"error": fmt.Sprintf("daily cap exceeded (%d/%d) — wait until tomorrow or reduce batch size", projected, whatsappHardDailyCap),
+			})
+			return
+		}
+		// Counter is incremented before Submit so concurrent or retried requests
+		// cannot race past the cap; over-counting on Submit failures is intentional.
+		s.dailySendCount[today] = projected
+		s.dailySendCountMu.Unlock()
+		if projected > whatsappSoftDailyCap {
+			warning = fmt.Sprintf("daily soft cap exceeded (%d/%d) — additional sends raise Meta detection risk", projected, whatsappHardDailyCap)
+		}
+	}
+
 	batchID := s.batchQueue.Submit(body.Platform, batch.JobType(body.Type), body.Items, body.MinDelay, body.MaxDelay)
-	writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"ok":       true,
 		"batch_id": batchID,
 		"total":    len(body.Items),
 		"message":  fmt.Sprintf("Batch submitted: %d %s jobs queued with %d-%ds delay between each", len(body.Items), body.Type, body.MinDelay, body.MaxDelay),
-	})
+	}
+	if warning != "" {
+		resp["warning"] = warning
+	}
+	writeJSON(w, resp)
+}
+
+// tierRank ranks tiers from safest (0) to highest-risk (2) so the WhatsApp
+// auto-tier logic can pick the worst tier present in a batch.
+func tierRank(t broadcast.Tier) int {
+	switch t {
+	case broadcast.TierActive:
+		return 0
+	case broadcast.TierQuiet:
+		return 1
+	case broadcast.TierNew:
+		return 2
+	}
+	return 1 // unknown → treat as Quiet (mid-risk, conservative)
 }
 
 func (s *Server) handleBatchStatus(w http.ResponseWriter, r *http.Request) {

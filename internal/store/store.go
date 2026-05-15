@@ -665,6 +665,74 @@ func (s *Store) GetCachedMessages(ctx context.Context, platform, conversationID 
 	return messages, lastSynced, nil
 }
 
+// LastInboundAt returns the most recent timestamp at which the given JID sent
+// us a WhatsApp message (is_outgoing=0). Returns zero time if no inbound messages.
+// Scope: WhatsApp 1-to-1 chats only — assumes sender_id == contact JID.
+func (s *Store) LastInboundAt(ctx context.Context, jid string) (time.Time, error) {
+	const q = `SELECT MAX(timestamp) FROM cached_messages
+		WHERE platform = 'whatsapp' AND sender_id = ? AND is_outgoing = 0`
+	var ts sql.NullTime
+	if err := s.db.QueryRowContext(ctx, q, jid).Scan(&ts); err != nil {
+		return time.Time{}, err
+	}
+	if !ts.Valid {
+		return time.Time{}, nil
+	}
+	return ts.Time, nil
+}
+
+// HasMessageHistory reports whether any cached WhatsApp message exists for the JID
+// (inbound or outbound).
+// Scope: WhatsApp 1-to-1 chats only — uses conversation_id which equals the contact JID for direct chats.
+func (s *Store) HasMessageHistory(ctx context.Context, jid string) (bool, error) {
+	const q = `SELECT 1 FROM cached_messages
+		WHERE platform = 'whatsapp' AND conversation_id = ? LIMIT 1`
+	var n int
+	err := s.db.QueryRowContext(ctx, q, jid).Scan(&n)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RecentInboundMessages returns up to `limit` recent inbound message bodies
+// from the given JID, ordered OLDEST FIRST (so callers can show the chat as
+// it would appear). Empty slice if no inbound messages.
+// Scope: WhatsApp 1-to-1 chats only — assumes sender_id == contact JID.
+func (s *Store) RecentInboundMessages(ctx context.Context, jid string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	const q = `SELECT content FROM cached_messages
+		WHERE platform = 'whatsapp' AND sender_id = ? AND is_outgoing = 0
+		ORDER BY timestamp DESC LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, q, jid, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []string
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, content)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Reverse so the result is oldest-first (matches Personalizer's expectation).
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, nil
+}
+
 // ---------------------------------------------------------------------------
 // Cached Posts
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,14 +36,15 @@ const (
 
 // Job is a single action in a batch.
 type Job struct {
-	ID       int       `json:"id"`
-	Type     JobType   `json:"type"`
-	Platform string    `json:"platform"`
-	Params   map[string]string `json:"params"`
-	Status   JobStatus `json:"status"`
-	Error    string    `json:"error,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	ID         int               `json:"id"`
+	Type       JobType           `json:"type"`
+	Platform   string            `json:"platform"`
+	Params     map[string]string `json:"params"`
+	Notes      map[string]string `json:"notes,omitempty"` // tier, personalized_text, etc.
+	Status     JobStatus         `json:"status"`
+	Error      string            `json:"error,omitempty"`
+	StartedAt  *time.Time        `json:"started_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
 }
 
 // Batch is a group of jobs submitted together.
@@ -65,11 +67,30 @@ type ExecutorFunc func(ctx context.Context, jobType JobType, platform string, pa
 
 // Queue manages batches of jobs with pacing.
 type Queue struct {
-	mu       sync.RWMutex
-	batches  map[string]*Batch
-	executor ExecutorFunc
-	logger   *log.Logger
-	counter  int // for generating batch IDs
+	mu          sync.RWMutex
+	batches     map[string]*Batch
+	executor    ExecutorFunc
+	logger      *log.Logger
+	counter     int // for generating batch IDs
+	subscribers []*subscriber
+	subMu       sync.Mutex
+}
+
+// Update is a progress event broadcast to SSE subscribers.
+type Update struct {
+	BatchID  string    `json:"batch_id"`
+	JobID    int       `json:"job_id"` // 0 for batch-level events (e.g. "batch finished")
+	Status   JobStatus `json:"status"`
+	Progress int       `json:"progress"`
+	Total    int       `json:"total"`
+	Error    string    `json:"error,omitempty"`
+	Note     string    `json:"note,omitempty"` // human-readable, e.g. "personalizing..." / "sent"
+}
+
+// subscriber is a registered SSE listener for batch progress events.
+type subscriber struct {
+	ch      chan Update
+	batchID string // empty = all batches
 }
 
 // NewQueue creates a new batch queue with the given executor function.
@@ -107,11 +128,22 @@ func (q *Queue) Submit(platform string, jobType JobType, items []map[string]stri
 	}
 
 	for i, params := range items {
+		var notes map[string]string
+		for k, v := range params {
+			if rest, ok := strings.CutPrefix(k, "_note_"); ok {
+				if notes == nil {
+					notes = make(map[string]string)
+				}
+				notes[rest] = v
+				delete(params, k)
+			}
+		}
 		batch.Jobs = append(batch.Jobs, &Job{
 			ID:       i + 1,
 			Type:     jobType,
 			Platform: platform,
 			Params:   params,
+			Notes:    notes,
 			Status:   StatusPending,
 		})
 	}
@@ -209,7 +241,11 @@ func (q *Queue) processBatch(batchID string) {
 		q.mu.Lock()
 		job.Status = StatusRunning
 		job.StartedAt = &now
+		progress := batch.Progress
+		total := batch.Total
 		q.mu.Unlock()
+
+		q.publish(Update{BatchID: batchID, JobID: job.ID, Status: StatusRunning, Progress: progress, Total: total, Note: "running"})
 
 		q.logger.Printf("[batch] %s: running job %d/%d (%s)", batchID, i+1, batch.Total, job.Type)
 
@@ -218,16 +254,27 @@ func (q *Queue) processBatch(batchID string) {
 		finished := time.Now()
 		q.mu.Lock()
 		job.FinishedAt = &finished
+		var u Update
+		u.BatchID = batchID
+		u.JobID = job.ID
+		u.Total = batch.Total
 		if err != nil {
 			job.Status = StatusFailed
 			job.Error = err.Error()
+			u.Status = StatusFailed
+			u.Error = err.Error()
+			u.Progress = batch.Progress
 			q.logger.Printf("[batch] %s: job %d FAILED: %v", batchID, i+1, err)
 		} else {
 			job.Status = StatusCompleted
 			batch.Progress++
+			u.Status = StatusCompleted
+			u.Progress = batch.Progress
+			u.Note = "sent"
 			q.logger.Printf("[batch] %s: job %d completed (%d/%d)", batchID, i+1, batch.Progress, batch.Total)
 		}
 		q.mu.Unlock()
+		q.publish(u)
 	}
 
 	// Mark batch as completed
@@ -244,7 +291,11 @@ func (q *Queue) processBatch(batchID string) {
 	} else {
 		batch.Status = StatusCompleted // still mark completed, individual jobs show failures
 	}
+	finalStatus := batch.Status
+	finalProgress := batch.Progress
+	finalTotal := batch.Total
 	q.mu.Unlock()
+	q.publish(Update{BatchID: batchID, Status: finalStatus, Progress: finalProgress, Total: finalTotal, Note: "batch finished"})
 
 	q.logger.Printf("[batch] %s: finished — %d/%d succeeded", batchID, batch.Progress, batch.Total)
 }
@@ -257,4 +308,44 @@ func (q *Queue) randomDelay(minSec, maxSec int) time.Duration {
 	// Add some millisecond jitter for more human-like timing
 	ms := rand.Intn(1000)
 	return time.Duration(secs)*time.Second + time.Duration(ms)*time.Millisecond
+}
+
+// Subscribe returns a channel that receives Update events. If batchID is non-empty,
+// only events for that batch are forwarded. Caller must call the returned cancel
+// function when done to release resources.
+func (q *Queue) Subscribe(batchID string) (<-chan Update, func()) {
+	sub := &subscriber{
+		ch:      make(chan Update, 32),
+		batchID: batchID,
+	}
+	q.subMu.Lock()
+	q.subscribers = append(q.subscribers, sub)
+	q.subMu.Unlock()
+
+	cancel := func() {
+		q.subMu.Lock()
+		defer q.subMu.Unlock()
+		for i, s := range q.subscribers {
+			if s == sub {
+				q.subscribers = append(q.subscribers[:i], q.subscribers[i+1:]...)
+				close(s.ch)
+				return
+			}
+		}
+	}
+	return sub.ch, cancel
+}
+
+func (q *Queue) publish(u Update) {
+	q.subMu.Lock()
+	defer q.subMu.Unlock()
+	for _, s := range q.subscribers {
+		if s.batchID != "" && s.batchID != u.BatchID {
+			continue
+		}
+		select {
+		case s.ch <- u:
+		default: // drop if subscriber lagging — never block the queue
+		}
+	}
 }
