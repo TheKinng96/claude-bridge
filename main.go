@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"claude-bridge/internal/agent"
+	"claude-bridge/internal/batch"
+	"claude-bridge/internal/broadcast"
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
@@ -24,10 +26,86 @@ import (
 	"claude-bridge/internal/updater"
 )
 
+// dispatchExecutor implements agent.Executor by bridging Dispatcher actions to
+// the WhatsApp connector, batch queue, and SQLite store.
+type dispatchExecutor struct {
+	wa    *whatsapp.Manager
+	bq    *batch.Queue
+	store *store.Store
+}
+
+func (e *dispatchExecutor) SendWhatsAppMessage(ctx context.Context, phone, message, fromJID string) error {
+	return e.wa.SendMessage(phone, message, fromJID)
+}
+
+func (e *dispatchExecutor) BroadcastWhatsApp(ctx context.Context, recipients []string, message string) (string, error) {
+	items := make([]map[string]string, 0, len(recipients))
+	for _, phone := range recipients {
+		items = append(items, map[string]string{
+			"phone":   phone,
+			"message": message,
+		})
+	}
+	// Conservative default for dispatch-initiated broadcasts. The dashboard
+	// path runs per-recipient tier classification; dispatch dispatches in bulk
+	// without classification, so pick the medium safe range.
+	minD, maxD := broadcast.DelayFor(broadcast.TierQuiet)
+	id := e.bq.Submit("whatsapp", batch.JobSendMessage, items, minD, maxD)
+	return id, nil
+}
+
+func (e *dispatchExecutor) SearchKB(ctx context.Context, query string, limit int) ([]agent.KBHit, error) {
+	hits, err := e.store.SearchDocuments(ctx, query, "", "", limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.KBHit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, agent.KBHit{Filename: h.Document.Filename, Summary: h.Document.Summary})
+	}
+	return out, nil
+}
+
+func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.PendingSummary, error) {
+	rows, err := e.store.ListPendingReplies(ctx, "pending")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.PendingSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, agent.PendingSummary{
+			ID:         r.ID,
+			ContactJID: r.ContactJID,
+			Incoming:   r.IncomingMsg,
+			Proposed:   r.ProposedReply,
+		})
+	}
+	return out, nil
+}
+
+func (e *dispatchExecutor) SummarizeInbox(ctx context.Context, hours int) ([]agent.InboxSummary, error) {
+	cfg, _ := agent.LoadConfig(ctx, e.store)
+	rows, err := e.store.SummarizeInbox(ctx, hours, cfg.OwnerJIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.InboxSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, agent.InboxSummary{
+			Sender:     r.PushName,
+			JID:        r.JID,
+			Count:      r.Count,
+			LastBody:   r.LastBody,
+			LastWhenMS: r.LastWhenMS,
+		})
+	}
+	return out, nil
+}
+
 // bootTelegram constructs and starts a Telegram client from saved agent
-// config. Returns nil if no token is configured or no owner IDs allowlisted.
-// In P1 the handler is a bare echo — P2 will swap in the dispatch loop.
-func bootTelegram(ctx context.Context, appStore *store.Store) *telegram.Client {
+// config. Returns nil if no token is configured. The handler routes inbound
+// owner messages through the dispatcher.
+func bootTelegram(ctx context.Context, appStore *store.Store, dispatcher *agent.Dispatcher) *telegram.Client {
 	cfg, err := agent.LoadConfig(ctx, appStore)
 	if err != nil {
 		log.Printf("telegram: LoadConfig failed: %v", err)
@@ -41,8 +119,15 @@ func bootTelegram(ctx context.Context, appStore *store.Store) *telegram.Client {
 	}
 	c := telegram.New(cfg.TelegramBotToken, cfg.OwnerTelegramIDs)
 	c.SetHandler(func(ctx context.Context, m *telegram.Message) string {
-		// P1 echo handler — swapped to dispatch in P2.
-		return "Got: " + m.Text
+		if dispatcher == nil {
+			return "Got: " + m.Text
+		}
+		res := dispatcher.Run(ctx, agent.DispatchInput{
+			Channel: "telegram",
+			OwnerID: fmt.Sprintf("%d", m.From.ID),
+			Message: m.Text,
+		})
+		return res.UserReply
 	})
 	go func() {
 		if err := c.Start(ctx); err != nil && ctx.Err() == nil {
@@ -157,10 +242,19 @@ func main() {
 	srv.SetEmbedder(knowEmbedder)
 	srv.SetAgent(agentRunner)
 
-	// Start Telegram connector if configured. Owner-allowlisted long-poll;
-	// P1 ships an echo handler so we can verify the wiring before P2 swaps in
-	// the dispatch loop.
-	tgClient := bootTelegram(context.Background(), appStore)
+	// Build the dispatcher (Claude + executor + audit log). Wired into both
+	// the WhatsApp Runner (for owner-JID messages) and the Telegram connector
+	// (for any allowlisted user).
+	dispatcher := agent.NewDispatcher(
+		knowClient,
+		&dispatchExecutor{wa: wa, bq: srv.BatchQueue(), store: appStore},
+		appStore,
+	)
+	agentRunner.SetDispatcher(dispatcher)
+
+	// Start Telegram connector if configured. Owner-allowlisted long-poll
+	// with dispatch handler — owner messages run through Claude+executor.
+	tgClient := bootTelegram(context.Background(), appStore, dispatcher)
 	if tgClient != nil {
 		srv.SetTelegram(tgClient)
 	}

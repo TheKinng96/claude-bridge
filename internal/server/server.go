@@ -59,6 +59,10 @@ func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
 // test-connection endpoint, dispatch loop) can reach it.
 func (s *Server) SetTelegram(c *telegram.Client) { s.tg = c }
 
+// BatchQueue exposes the batch queue so other subsystems (dispatch executor)
+// can submit jobs directly without going through the HTTP layer.
+func (s *Server) BatchQueue() *batch.Queue { return s.batchQueue }
+
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
 	s := &Server{
