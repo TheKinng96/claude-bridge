@@ -18,6 +18,7 @@ import (
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
+	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
@@ -36,6 +37,7 @@ type Server struct {
 	knowWatcher   *knowledge.Watcher
 	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
 	agentRunner   agentRunner
+	tg            *telegram.Client // nil if not configured
 	updateReady   bool
 	port          int
 	listener      net.Listener
@@ -52,6 +54,10 @@ type agentRunner interface{}
 
 // SetAgent attaches the auto-reply agent runner.
 func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
+
+// SetTelegram attaches the Telegram connector so HTTP handlers (settings UI,
+// test-connection endpoint, dispatch loop) can reach it.
+func (s *Server) SetTelegram(c *telegram.Client) { s.tg = c }
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
@@ -277,6 +283,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/setup/agent", s.handleAgent)
 	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
 	mux.HandleFunc("/api/agent/replies", s.handleAgentReplies)
+	mux.HandleFunc("/api/telegram/test", s.handleTelegramTest)
 
 	// Contacts + Groups
 	mux.HandleFunc("/contacts", s.handleContactsPage)
