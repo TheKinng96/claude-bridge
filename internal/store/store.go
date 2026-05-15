@@ -397,6 +397,20 @@ func (s *Store) migrate() error {
 			expires_at DATETIME NOT NULL,
 			used_at    DATETIME
 		)`,
+
+		`CREATE TABLE IF NOT EXISTS dispatch_log (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			channel     TEXT NOT NULL,
+			owner_id    TEXT NOT NULL,
+			message     TEXT NOT NULL,
+			action      TEXT NOT NULL,
+			user_reply  TEXT NOT NULL,
+			error_text  TEXT NOT NULL DEFAULT '',
+			duration_ms INTEGER NOT NULL DEFAULT 0,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_dispatch_log_created ON dispatch_log(created_at DESC)`,
 	}
 
 	for _, m := range migrations {
@@ -1583,4 +1597,113 @@ func (s *Store) ConsumeMagicToken(ctx context.Context, tokenHash string) (bool, 
 		return false, err
 	}
 	return true, tx.Commit()
+}
+
+// InboxSender bundles per-sender inbound activity in a recent window.
+type InboxSender struct {
+	JID        string
+	PushName   string
+	Count      int
+	LastBody   string
+	LastWhenMS int64
+}
+
+// SummarizeInbox returns inbound non-outgoing message counts grouped by sender
+// for the last `hours`. Senders whose JID is in `excludeJIDs` are dropped
+// (used to skip the owner's own JIDs).
+func (s *Store) SummarizeInbox(ctx context.Context, hours int, excludeJIDs []string) ([]InboxSender, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT m.conversation_id,
+		        COALESCE(con.push_name, cc.name, '') AS display_name,
+		        COUNT(*) AS cnt,
+		        (SELECT content FROM cached_messages
+		           WHERE conversation_id = m.conversation_id
+		             AND platform = 'whatsapp'
+		             AND is_outgoing = 0
+		           ORDER BY timestamp DESC LIMIT 1) AS last_body,
+		        MAX(m.timestamp) AS last_ts
+		 FROM cached_messages m
+		 LEFT JOIN contacts con ON con.jid = m.conversation_id AND con.platform = 'whatsapp'
+		 LEFT JOIN cached_contacts cc ON cc.contact_id = m.conversation_id AND cc.platform = 'whatsapp'
+		 WHERE m.platform = 'whatsapp'
+		   AND m.is_outgoing = 0
+		   AND m.timestamp >= ?
+		 GROUP BY m.conversation_id
+		 ORDER BY cnt DESC`,
+		cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	excl := make(map[string]bool, len(excludeJIDs))
+	for _, j := range excludeJIDs {
+		excl[j] = true
+	}
+
+	var out []InboxSender
+	for rows.Next() {
+		var s InboxSender
+		var lastTS time.Time
+		if err := rows.Scan(&s.JID, &s.PushName, &s.Count, &s.LastBody, &lastTS); err != nil {
+			return nil, err
+		}
+		if excl[s.JID] {
+			continue
+		}
+		s.LastWhenMS = lastTS.UnixMilli()
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// DispatchLogEntry is one row of the audit log.
+type DispatchLogEntry struct {
+	ID         int64     `json:"id"`
+	Channel    string    `json:"channel"`
+	OwnerID    string    `json:"owner_id"`
+	Message    string    `json:"message"`
+	Action     string    `json:"action"`
+	UserReply  string    `json:"user_reply"`
+	ErrorText  string    `json:"error_text,omitempty"`
+	DurationMS int64     `json:"duration_ms"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// SaveDispatchLog appends one dispatch turn to the audit log.
+func (s *Store) SaveDispatchLog(ctx context.Context, channel, ownerID, message, action, userReply, errText string, durationMS int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO dispatch_log (channel, owner_id, message, action, user_reply, error_text, duration_ms)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		channel, ownerID, message, action, userReply, errText, durationMS)
+	return err
+}
+
+// ListDispatchLogs returns the most recent N audit entries, newest first.
+func (s *Store) ListDispatchLogs(ctx context.Context, limit int) ([]DispatchLogEntry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, channel, owner_id, message, action, user_reply, error_text, duration_ms, created_at
+		 FROM dispatch_log
+		 ORDER BY created_at DESC
+		 LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DispatchLogEntry
+	for rows.Next() {
+		var e DispatchLogEntry
+		if err := rows.Scan(&e.ID, &e.Channel, &e.OwnerID, &e.Message, &e.Action, &e.UserReply, &e.ErrorText, &e.DurationMS, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
