@@ -15,12 +15,15 @@ import (
 type Action string
 
 const (
-	ActionSendWhatsApp Action = "send_whatsapp"
-	ActionBroadcast    Action = "broadcast_whatsapp"
-	ActionSearchKB     Action = "search_kb"
-	ActionListPending  Action = "list_pending"
-	ActionSummaryInbox Action = "summary_inbox"
-	ActionReply        Action = "reply"
+	ActionSendWhatsApp   Action = "send_whatsapp"
+	ActionBroadcast      Action = "broadcast_whatsapp"
+	ActionSearchKB       Action = "search_kb"
+	ActionListPending    Action = "list_pending"
+	ActionSummaryInbox   Action = "summary_inbox"
+	ActionGetProfile     Action = "get_profile"
+	ActionUpdateProfile  Action = "update_profile"
+	ActionExtractProfile Action = "extract_profile"
+	ActionReply          Action = "reply"
 )
 
 // ClaudeRunner is the subset of *claude.Client used by the dispatcher.
@@ -51,14 +54,36 @@ type InboxSummary struct {
 	LastWhenMS int64
 }
 
+// ProfileInfo is a flattened view of a client profile for dispatch output.
+type ProfileInfo struct {
+	JID         string
+	DisplayName string
+	Aliases     []string
+	Language    string
+	Role        string
+	FamilyNotes string
+	Interests   []string
+	LastTopics  []string
+	CustomNotes string
+}
+
+// ProfileQuery describes how to look up a profile — by JID OR by name.
+type ProfileQuery struct {
+	JID  string
+	Name string
+}
+
 // Executor performs the resolved action. Real impl wraps wa + batch queue +
-// store; tests inject a stub.
+// store + profile extractor; tests inject a stub.
 type Executor interface {
 	SendWhatsAppMessage(ctx context.Context, phone, message, fromJID string) error
 	BroadcastWhatsApp(ctx context.Context, recipients []string, message string) (batchID string, err error)
 	SearchKB(ctx context.Context, query string, limit int) ([]KBHit, error)
 	ListPendingReplies(ctx context.Context) ([]PendingSummary, error)
 	SummarizeInbox(ctx context.Context, hours int) ([]InboxSummary, error)
+	GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error)
+	UpdateProfile(ctx context.Context, jid, field, value string) error
+	ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error)
 }
 
 // DispatchStore captures the audit-log dependency. Real impl is *store.Store.
@@ -115,6 +140,9 @@ Action params:
 - search_kb: {"query": "policy renewal", "limit": 5} — search the knowledge base.
 - list_pending: {} — list pending replies awaiting owner review.
 - summary_inbox: {"hours": 24} — summarize who messaged the owner recently.
+- get_profile: {"jid": "601...", "name": "Alice"} — lookup client profile by JID or name (at least one).
+- update_profile: {"jid": "601...", "field": "custom_notes", "value": "VIP, prefers WhatsApp"} — edit one profile field. Allowed fields: display_name, role, language, family_notes, custom_notes.
+- extract_profile: {"jid": "601..."} — run Claude over recent messages to refresh the profile.
 - reply: {} — just chat, no side effect.
 
 Rules:
@@ -309,6 +337,62 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		}
 		return sb.String(), nil
 
+	case ActionGetProfile:
+		var args struct {
+			JID  string `json:"jid"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("get_profile params: %w", err)
+		}
+		if args.JID == "" && args.Name == "" {
+			return "", errors.New("get_profile: jid or name required")
+		}
+		info, err := d.Exec.GetProfile(ctx, ProfileQuery{JID: args.JID, Name: args.Name})
+		if err != nil {
+			return "", err
+		}
+		if info == nil {
+			return "(no profile)", nil
+		}
+		return formatProfile(info), nil
+
+	case ActionUpdateProfile:
+		var args struct {
+			JID   string `json:"jid"`
+			Field string `json:"field"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("update_profile params: %w", err)
+		}
+		if args.JID == "" || args.Field == "" {
+			return "", errors.New("update_profile: jid and field required")
+		}
+		if err := d.Exec.UpdateProfile(ctx, args.JID, args.Field, args.Value); err != nil {
+			return "", err
+		}
+		return "(updated " + args.Field + ")", nil
+
+	case ActionExtractProfile:
+		var args struct {
+			JID string `json:"jid"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("extract_profile params: %w", err)
+		}
+		if args.JID == "" {
+			return "", errors.New("extract_profile: jid required")
+		}
+		info, err := d.Exec.ExtractProfile(ctx, args.JID)
+		if err != nil {
+			return "", err
+		}
+		if info == nil {
+			return "(no messages to extract from)", nil
+		}
+		return "(profile refreshed)\n" + formatProfile(info), nil
+
 	case ActionSummaryInbox:
 		var args struct {
 			Hours int `json:"hours"`
@@ -348,6 +432,39 @@ func (d *Dispatcher) logAsync(ctx context.Context, in DispatchInput, res Dispatc
 		defer cancel()
 		_ = d.Store.SaveDispatchLog(bgCtx, in.Channel, in.OwnerID, in.Message, string(res.Action), res.UserReply, res.Error, dur.Milliseconds())
 	}()
+}
+
+// formatProfile renders a ProfileInfo as a compact multi-line string for
+// dispatch output. Empty fields are skipped to keep the reply tight.
+func formatProfile(p *ProfileInfo) string {
+	var b strings.Builder
+	name := p.DisplayName
+	if name == "" {
+		name = shortJID(p.JID)
+	}
+	b.WriteString("\n" + name)
+	if p.Role != "" {
+		b.WriteString(" — " + p.Role)
+	}
+	if len(p.Aliases) > 0 {
+		b.WriteString("\nAliases: " + strings.Join(p.Aliases, ", "))
+	}
+	if p.Language != "" {
+		b.WriteString("\nLanguage: " + p.Language)
+	}
+	if p.FamilyNotes != "" {
+		b.WriteString("\nFamily: " + p.FamilyNotes)
+	}
+	if len(p.Interests) > 0 {
+		b.WriteString("\nInterests: " + strings.Join(p.Interests, ", "))
+	}
+	if len(p.LastTopics) > 0 {
+		b.WriteString("\nRecent topics: " + strings.Join(p.LastTopics, ", "))
+	}
+	if p.CustomNotes != "" {
+		b.WriteString("\nNotes: " + p.CustomNotes)
+	}
+	return b.String()
 }
 
 // shortJID strips the @s.whatsapp.net suffix for compact display.

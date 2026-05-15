@@ -25,22 +25,27 @@ func (f *fakeClaude) Reply(ctx context.Context, system, user string) (string, er
 type fakeExec struct {
 	mu sync.Mutex
 
-	sendCalls      []sendCall
-	broadcastCalls []broadcastCall
-	searchCalls    []searchCall
-	pendingCalls   int
-	summaryCalls   []int
+	sendCalls           []sendCall
+	broadcastCalls      []broadcastCall
+	searchCalls         []searchCall
+	pendingCalls        int
+	summaryCalls        []int
+	getProfileCalls     []ProfileQuery
+	updateProfileCalls  []updateProfileCall
+	extractProfileCalls []string
 
 	sendErr      error
 	broadcastErr error
 	searchErr    error
 	pendingErr   error
 	summaryErr   error
+	profileErr   error
 
 	broadcastID string
 	searchHits  []KBHit
 	pendings    []PendingSummary
 	inboxBucket []InboxSummary
+	profile     *ProfileInfo
 }
 
 type sendCall struct{ Phone, Message, FromJID string }
@@ -87,6 +92,29 @@ func (f *fakeExec) SummarizeInbox(ctx context.Context, h int) ([]InboxSummary, e
 	f.summaryCalls = append(f.summaryCalls, h)
 	return f.inboxBucket, f.summaryErr
 }
+
+func (f *fakeExec) GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getProfileCalls = append(f.getProfileCalls, q)
+	return f.profile, f.profileErr
+}
+
+func (f *fakeExec) UpdateProfile(ctx context.Context, jid, field, value string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updateProfileCalls = append(f.updateProfileCalls, updateProfileCall{jid, field, value})
+	return f.profileErr
+}
+
+func (f *fakeExec) ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.extractProfileCalls = append(f.extractProfileCalls, jid)
+	return f.profile, f.profileErr
+}
+
+type updateProfileCall struct{ JID, Field, Value string }
 
 type fakeStore struct {
 	mu  sync.Mutex
@@ -265,6 +293,69 @@ func TestParseDispatch_HandlesPrefixedText(t *testing.T) {
 	}
 	if p.UserReply != "hi" {
 		t.Errorf("got %q", p.UserReply)
+	}
+}
+
+func TestRun_GetProfileByName(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"get_profile","params":{"name":"Alice"},"user_reply":"Profile:"}`)
+	ex.profile = &ProfileInfo{JID: "601@s", DisplayName: "Alice", Role: "client", Interests: []string{"insurance"}}
+	res := d.Run(context.Background(), DispatchInput{})
+	if len(ex.getProfileCalls) != 1 || ex.getProfileCalls[0].Name != "Alice" {
+		t.Errorf("getProfile not called as expected: %+v", ex.getProfileCalls)
+	}
+	if !strings.Contains(res.UserReply, "Alice") || !strings.Contains(res.UserReply, "insurance") {
+		t.Errorf("profile not rendered: %s", res.UserReply)
+	}
+}
+
+func TestRun_GetProfileNoMatch(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"get_profile","params":{"jid":"601@s"},"user_reply":"Lookup:"}`)
+	ex.profile = nil
+	res := d.Run(context.Background(), DispatchInput{})
+	if !strings.Contains(res.UserReply, "no profile") {
+		t.Errorf("expected 'no profile': %s", res.UserReply)
+	}
+}
+
+func TestRun_GetProfileRequiresJIDOrName(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"get_profile","params":{},"user_reply":"Looking."}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error == "" {
+		t.Errorf("expected validation error")
+	}
+}
+
+func TestRun_UpdateProfileDispatches(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"update_profile","params":{"jid":"601@s","field":"custom_notes","value":"VIP"},"user_reply":"Saving."}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error != "" {
+		t.Fatalf("err: %s", res.Error)
+	}
+	if len(ex.updateProfileCalls) != 1 ||
+		ex.updateProfileCalls[0].JID != "601@s" ||
+		ex.updateProfileCalls[0].Field != "custom_notes" ||
+		ex.updateProfileCalls[0].Value != "VIP" {
+		t.Errorf("update profile call wrong: %+v", ex.updateProfileCalls)
+	}
+}
+
+func TestRun_UpdateProfileRequiresJIDAndField(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"update_profile","params":{"jid":"601@s"},"user_reply":"Saving."}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error == "" {
+		t.Errorf("expected validation error")
+	}
+}
+
+func TestRun_ExtractProfileDispatches(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"extract_profile","params":{"jid":"601@s"},"user_reply":"Extracting."}`)
+	ex.profile = &ProfileInfo{JID: "601@s", DisplayName: "Alice"}
+	res := d.Run(context.Background(), DispatchInput{})
+	if len(ex.extractProfileCalls) != 1 || ex.extractProfileCalls[0] != "601@s" {
+		t.Errorf("extract not invoked: %+v", ex.extractProfileCalls)
+	}
+	if !strings.Contains(res.UserReply, "Alice") {
+		t.Errorf("profile not in reply: %s", res.UserReply)
 	}
 }
 

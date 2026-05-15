@@ -20,18 +20,31 @@ import (
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
+	"claude-bridge/internal/profile"
 	"claude-bridge/internal/server"
 	"claude-bridge/internal/store"
 	"claude-bridge/internal/tray"
 	"claude-bridge/internal/updater"
 )
 
+// allowedProfileFields restricts which client_profile columns the dispatcher
+// can overwrite via update_profile, preventing Claude from blanking out the
+// JID, timestamps, or the auto-extracted aliases/interests arrays.
+var allowedProfileFields = map[string]bool{
+	"display_name": true,
+	"role":         true,
+	"language":     true,
+	"family_notes": true,
+	"custom_notes": true,
+}
+
 // dispatchExecutor implements agent.Executor by bridging Dispatcher actions to
-// the WhatsApp connector, batch queue, and SQLite store.
+// the WhatsApp connector, batch queue, SQLite store, and profile extractor.
 type dispatchExecutor struct {
-	wa    *whatsapp.Manager
-	bq    *batch.Queue
-	store *store.Store
+	wa        *whatsapp.Manager
+	bq        *batch.Queue
+	store     *store.Store
+	extractor *profile.Extractor
 }
 
 func (e *dispatchExecutor) SendWhatsAppMessage(ctx context.Context, phone, message, fromJID string) error {
@@ -81,6 +94,94 @@ func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.Pend
 		})
 	}
 	return out, nil
+}
+
+func (e *dispatchExecutor) GetProfile(ctx context.Context, q agent.ProfileQuery) (*agent.ProfileInfo, error) {
+	var p *store.ClientProfile
+	var err error
+	if q.JID != "" {
+		p, err = e.store.GetClientProfile(ctx, q.JID)
+	} else if q.Name != "" {
+		p, err = e.store.FindClientProfileByName(ctx, q.Name)
+	}
+	if err != nil || p == nil {
+		return nil, err
+	}
+	return profileToInfo(p), nil
+}
+
+func (e *dispatchExecutor) UpdateProfile(ctx context.Context, jid, field, value string) error {
+	if !allowedProfileFields[field] {
+		return fmt.Errorf("field %q is not editable via dispatch", field)
+	}
+	existing, err := e.store.GetClientProfile(ctx, jid)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		existing = &store.ClientProfile{JID: jid}
+	}
+	switch field {
+	case "display_name":
+		existing.DisplayName = value
+	case "role":
+		existing.Role = value
+	case "language":
+		existing.Language = value
+	case "family_notes":
+		existing.FamilyNotes = value
+	case "custom_notes":
+		existing.CustomNotes = value
+	}
+	return e.store.UpsertClientProfile(ctx, existing)
+}
+
+func (e *dispatchExecutor) ExtractProfile(ctx context.Context, jid string) (*agent.ProfileInfo, error) {
+	if e.extractor == nil {
+		return nil, fmt.Errorf("extractor not configured")
+	}
+	// Pull the last 30 inbound messages for context. GetCachedMessages returns
+	// newest-first; reverse for chronological.
+	msgs, _, err := e.store.GetCachedMessages(ctx, "whatsapp", jid, 30)
+	if err != nil {
+		return nil, err
+	}
+	inbound := make([]store.CachedMessage, 0, len(msgs))
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if !msgs[i].IsOutgoing {
+			inbound = append(inbound, msgs[i])
+		}
+	}
+	if len(inbound) == 0 {
+		return nil, nil
+	}
+	existing, _ := e.store.GetClientProfile(ctx, jid)
+	updated, err := e.extractor.Extract(ctx, jid, existing, inbound)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.store.UpsertClientProfile(ctx, updated); err != nil {
+		return nil, err
+	}
+	return profileToInfo(updated), nil
+}
+
+// profileToInfo flattens a store.ClientProfile into the agent-level view.
+func profileToInfo(p *store.ClientProfile) *agent.ProfileInfo {
+	if p == nil {
+		return nil
+	}
+	return &agent.ProfileInfo{
+		JID:         p.JID,
+		DisplayName: p.DisplayName,
+		Aliases:     p.Aliases,
+		Language:    p.Language,
+		Role:        p.Role,
+		FamilyNotes: p.FamilyNotes,
+		Interests:   p.Interests,
+		LastTopics:  p.LastTopics,
+		CustomNotes: p.CustomNotes,
+	}
 }
 
 func (e *dispatchExecutor) SummarizeInbox(ctx context.Context, hours int) ([]agent.InboxSummary, error) {
@@ -245,9 +346,10 @@ func main() {
 	// Build the dispatcher (Claude + executor + audit log). Wired into both
 	// the WhatsApp Runner (for owner-JID messages) and the Telegram connector
 	// (for any allowlisted user).
+	extractor := profile.NewExtractor(knowClient)
 	dispatcher := agent.NewDispatcher(
 		knowClient,
-		&dispatchExecutor{wa: wa, bq: srv.BatchQueue(), store: appStore},
+		&dispatchExecutor{wa: wa, bq: srv.BatchQueue(), store: appStore, extractor: extractor},
 		appStore,
 	)
 	agentRunner.SetDispatcher(dispatcher)
