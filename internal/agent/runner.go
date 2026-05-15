@@ -29,9 +29,14 @@ type Runner struct {
 	replier        *Replier
 	sender         func(phone, text, fromJID string) error
 	store          *store.Store
+	dispatcher     *Dispatcher // optional — set via SetDispatcher to enable owner-dispatch path
 	lastNotifyTime time.Time
 	notifyMu       sync.Mutex
 }
+
+// SetDispatcher attaches a dispatcher so owner-originated messages bypass the
+// normal reply pipeline and run actions instead.
+func (r *Runner) SetDispatcher(d *Dispatcher) { r.dispatcher = d }
 
 // NewRunner creates a Runner. sender is wa.Manager.SendMessage.
 func NewRunner(replier *Replier, sender func(phone, text, fromJID string) error, s *store.Store) *Runner {
@@ -90,6 +95,13 @@ func (r *Runner) process(msg IncomingMsg) {
 		if containsJID(cfg.OwnerJIDs, msg.ContactJID) {
 			r.handleLoginCommand(ctx, cfg, msg)
 		}
+		return
+	}
+
+	// Owner dispatch: if the message is from an admin JID and a dispatcher is
+	// wired, route to the dispatcher instead of the auto-reply pipeline.
+	if r.dispatcher != nil && containsJID(cfg.OwnerJIDs, msg.ContactJID) {
+		r.runDispatch(ctx, msg)
 		return
 	}
 
@@ -216,4 +228,37 @@ func containsJID(jids []string, jid string) bool {
 		}
 	}
 	return false
+}
+
+// runDispatch routes an owner-originated WhatsApp message through the
+// dispatcher and sends the resulting reply back via WhatsApp.
+func (r *Runner) runDispatch(ctx context.Context, msg IncomingMsg) {
+	res := r.dispatcher.Run(ctx, DispatchInput{
+		Channel: "whatsapp",
+		OwnerID: msg.ContactJID,
+		Message: msg.Body,
+	})
+	if res.UserReply == "" {
+		return
+	}
+	phone := strings.Split(msg.ContactJID, "@")[0]
+	if err := r.sender(phone, res.UserReply, msg.AccountJID); err != nil {
+		log.Printf("[agent] dispatch reply send error: %v", err)
+		return
+	}
+	_ = r.store.UpsertCachedMessage(ctx, &store.CachedMessage{
+		Platform:       "whatsapp",
+		ConversationID: msg.ContactJID,
+		MessageID:      "dispatch-" + msg.ContactJID + "-" + msg.Timestamp.Format("20060102150405"),
+		SenderID:       msg.AccountJID,
+		SenderName:     "Dispatch",
+		Content:        res.UserReply,
+		Timestamp:      time.Now(),
+		IsOutgoing:     true,
+	})
+	preview := res.UserReply
+	if len(preview) > 60 {
+		preview = preview[:60]
+	}
+	log.Printf("[agent] dispatched %s for %s: %s", res.Action, msg.PushName, preview)
 }
