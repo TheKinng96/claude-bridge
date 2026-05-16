@@ -234,22 +234,51 @@ const dashboardHTML = `<!DOCTYPE html>
 		</div>
 
 		<div id="dispatchPanel" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+
+			<div style="background:var(--code-bg,rgba(0,0,0,0.04));border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+				<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">Step 1 — Create a bot</div>
+				<ol style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--text-muted);line-height:1.7;">
+					<li>Open Telegram, search <code>@BotFather</code>, tap the result with the blue checkmark.</li>
+					<li>Send <code>/newbot</code>. Follow prompts: pick a name, then a username ending in <code>bot</code>.</li>
+					<li>BotFather replies with a token like <code>123456:ABC-DEF...</code>. Copy it.</li>
+					<li>Paste the token into the <strong>Bot token</strong> field below.</li>
+				</ol>
+			</div>
+
+			<div style="background:var(--code-bg,rgba(0,0,0,0.04));border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+				<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">Step 2 — Get YOUR Telegram user ID</div>
+				<p style="margin:0 0 8px 0;font-size:13px;color:var(--text-muted);">This is <strong>your</strong> ID (so the bot will reply to you), NOT the bot's ID.</p>
+				<ol style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--text-muted);line-height:1.7;">
+					<li>Open Telegram, search <code>@userinfobot</code>, tap the result.</li>
+					<li>Tap <strong>Start</strong> at the bottom.</li>
+					<li>It replies with a block showing <code>Id: 123456789</code>. Copy that number.</li>
+					<li>Paste into <strong>Owner Telegram IDs</strong> below. For multiple admins, separate with commas.</li>
+				</ol>
+			</div>
+
 			<div class="form-row">
-				<label for="dTgToken" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;">Bot token</label>
+				<label for="dTgToken" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;">Bot token <span style="color:var(--text-dim);font-weight:400;">(from @BotFather)</span></label>
 				<input id="dTgToken" type="password" autocomplete="off" placeholder="123456:ABC-DEF..." style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box;">
-				<div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Create one via <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram.</div>
 			</div>
+
 			<div class="form-row" style="margin-top:12px;">
-				<label for="dTgOwnerIDs" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;">Owner Telegram IDs (comma-separated)</label>
-				<input id="dTgOwnerIDs" placeholder="e.g. 123456789, 987654321" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box;">
-				<div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Don't know your ID? DM your bot, then check server log for "drop msg from non-owner &lt;ID&gt;" and paste it here.</div>
+				<label for="dTgOwnerIDs" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;">Owner Telegram IDs <span style="color:var(--text-dim);font-weight:400;">(from @userinfobot — your ID, not the bot's)</span></label>
+				<input id="dTgOwnerIDs" placeholder="123456789, 987654321" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box;">
 			</div>
-			<div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
+
+			<div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
 				<button class="btn btn-outline" onclick="testDispatchTelegram()">Test connection</button>
 				<button class="btn btn-primary" onclick="saveDispatch()">Save</button>
 				<span id="dTgTestResult" style="font-size:12px;color:var(--text-dim);"></span>
 			</div>
-			<div style="font-size:12px;color:var(--text-dim);margin-top:8px;">Changes take effect on next restart.</div>
+
+			<div style="background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px;color:var(--text-muted);">
+				⚠️ <strong>After saving, restart the app</strong> for changes to take effect. The bot only loads its token at boot.
+			</div>
+
+			<div style="font-size:12px;color:var(--text-dim);margin-top:10px;">
+				Once active: DM your bot anything (e.g. <code>what's pending</code>, <code>summary inbox</code>, <code>tell me about &lt;name&gt;</code>) and it replies with Claude-dispatched action results.
+			</div>
 		</div>
 	</div>
 
