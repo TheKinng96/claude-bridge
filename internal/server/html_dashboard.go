@@ -217,6 +217,42 @@ const dashboardHTML = `<!DOCTYPE html>
 		<div class="guide-note" style="margin-top:8px;">For Claude Code, run: <code>claude-bridge --mcp</code> directly, or add the same config to your Claude Code MCP settings.</div>
 	</div>
 
+	<h2 class="section-title" style="margin-top:32px;">Dispatch Assistant</h2>
+	<div class="claude-card" id="dispatchCard">
+		<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+			<div class="connector-info" style="flex:1;">
+				<div class="connector-icon" style="background:#229ED9;color:#fff;">✈️</div>
+				<div class="connector-details">
+					<h4>Telegram Commander</h4>
+					<p id="dispatchDetail" style="margin:4px 0 0 0;">Not configured. Set up a Telegram bot to chat with the assistant and dispatch actions (send messages, search KB, manage profiles, run broadcasts).</p>
+				</div>
+			</div>
+			<div style="display:flex;gap:8px;align-items:center;">
+				<span class="status-badge" id="dispatchBadge" style="display:none;"></span>
+				<button class="btn btn-outline" id="dispatchToggle" onclick="toggleDispatch()">Setup</button>
+			</div>
+		</div>
+
+		<div id="dispatchPanel" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+			<div class="form-row">
+				<label for="dTgToken" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;">Bot token</label>
+				<input id="dTgToken" type="password" autocomplete="off" placeholder="123456:ABC-DEF..." style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box;">
+				<div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Create one via <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram.</div>
+			</div>
+			<div class="form-row" style="margin-top:12px;">
+				<label for="dTgOwnerIDs" style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;">Owner Telegram IDs (comma-separated)</label>
+				<input id="dTgOwnerIDs" placeholder="e.g. 123456789, 987654321" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box;">
+				<div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Don't know your ID? DM your bot, then check server log for "drop msg from non-owner &lt;ID&gt;" and paste it here.</div>
+			</div>
+			<div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
+				<button class="btn btn-outline" onclick="testDispatchTelegram()">Test connection</button>
+				<button class="btn btn-primary" onclick="saveDispatch()">Save</button>
+				<span id="dTgTestResult" style="font-size:12px;color:var(--text-dim);"></span>
+			</div>
+			<div style="font-size:12px;color:var(--text-dim);margin-top:8px;">Changes take effect on next restart.</div>
+		</div>
+	</div>
+
 	<h2 class="section-title" style="margin-top:32px;">Recent Activity</h2>
 	<div class="activity-feed" id="activityFeed">
 		<div class="empty-state">No activity yet. Connect a channel to get started.</div>
@@ -630,6 +666,115 @@ function escapeHTML(s) {
 }
 document.addEventListener('DOMContentLoaded', loadBroadcasts);
 setInterval(loadBroadcasts, 10000);
+
+// ---------- Dispatch Assistant (Telegram) ----------
+
+function toggleDispatch() {
+	const panel = document.getElementById('dispatchPanel');
+	const open = panel.style.display === 'none';
+	panel.style.display = open ? 'block' : 'none';
+	document.getElementById('dispatchToggle').textContent = open ? 'Hide' : 'Setup';
+	if (open) loadDispatchConfig();
+}
+
+async function loadDispatchConfig() {
+	try {
+		const r = await fetch('/api/agent/config');
+		const j = await r.json();
+		document.getElementById('dTgToken').value = j.telegram_bot_token || '';
+		document.getElementById('dTgOwnerIDs').value = (j.owner_telegram_ids || []).join(', ');
+		updateDispatchBadge(j);
+	} catch (e) {}
+}
+
+function updateDispatchBadge(j) {
+	const badge = document.getElementById('dispatchBadge');
+	const detail = document.getElementById('dispatchDetail');
+	const tok = j.telegram_bot_token || '';
+	const ids = (j.owner_telegram_ids || []).length;
+	if (tok && ids > 0) {
+		badge.textContent = 'Active';
+		badge.style.cssText = 'display:inline-block;background:rgba(34,197,94,0.15);color:#22c55e;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;';
+		detail.textContent = ids + ' owner ID(s) allowlisted. DM the bot to dispatch actions.';
+	} else if (tok) {
+		badge.textContent = 'Token set';
+		badge.style.cssText = 'display:inline-block;background:rgba(234,179,8,0.15);color:#eab308;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;';
+		detail.textContent = 'Bot token saved but no owner IDs allowlisted. Bot will drop all messages.';
+	} else {
+		badge.style.display = 'none';
+		detail.textContent = 'Not configured. Set up a Telegram bot to chat with the assistant and dispatch actions (send messages, search KB, manage profiles, run broadcasts).';
+	}
+}
+
+async function testDispatchTelegram() {
+	const tok = document.getElementById('dTgToken').value.trim();
+	const out = document.getElementById('dTgTestResult');
+	if (!tok) { out.textContent = 'enter a token first'; out.style.color = '#c00'; return; }
+	out.textContent = 'testing...';
+	out.style.color = 'var(--text-dim)';
+	try {
+		const r = await fetch('/api/telegram/test', {
+			method: 'POST',
+			headers: {'Content-Type':'application/json'},
+			body: JSON.stringify({token: tok}),
+		});
+		const j = await r.json();
+		if (j.ok) {
+			out.textContent = 'connected: @' + j.username + ' (id ' + j.id + ')';
+			out.style.color = '#22c55e';
+		} else {
+			out.textContent = 'failed: ' + (j.error || 'unknown');
+			out.style.color = '#c00';
+		}
+	} catch (e) {
+		out.textContent = 'failed: ' + e.message;
+		out.style.color = '#c00';
+	}
+}
+
+// saveDispatch merges Telegram fields into the existing agent config so it
+// doesn't blank out fields owned by the Agent settings page.
+async function saveDispatch() {
+	const tokRaw = document.getElementById('dTgToken').value.trim();
+	const idsRaw = document.getElementById('dTgOwnerIDs').value.trim();
+	const ids = idsRaw ? idsRaw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)) : [];
+
+	let current = {};
+	try {
+		const r = await fetch('/api/agent/config');
+		current = await r.json();
+	} catch (e) {
+		alert('Failed to read current config: ' + e.message);
+		return;
+	}
+	const body = Object.assign({}, current, {
+		telegram_bot_token: tokRaw,
+		owner_telegram_ids: ids,
+	});
+	try {
+		const r = await fetch('/api/agent/config', {
+			method: 'POST',
+			headers: {'Content-Type':'application/json'},
+			body: JSON.stringify(body),
+		});
+		const j = await r.json();
+		if (!j.ok) { alert('Save failed: ' + (j.error || 'unknown')); return; }
+		alert('Saved. Restart the app for changes to take effect.');
+		updateDispatchBadge(body);
+	} catch (e) {
+		alert('Save failed: ' + e.message);
+	}
+}
+
+// Status badge on initial load — fetch lightweight summary even without panel open.
+async function pollDispatchBadge() {
+	try {
+		const r = await fetch('/api/agent/config');
+		const j = await r.json();
+		updateDispatchBadge(j);
+	} catch (e) {}
+}
+document.addEventListener('DOMContentLoaded', pollDispatchBadge);
 </script>
 </body>
 </html>`

@@ -121,24 +121,6 @@ const agentHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="card">
-		<h3>Telegram Bot</h3>
-		<div class="help">Optional. Connects a Telegram bot so admins can chat with the agent and (in P2) dispatch tools. Create a bot via <a href="https://t.me/BotFather" target="_blank">@BotFather</a>, paste the token, then DM the bot once and add your Telegram user ID below.</div>
-		<div class="form-row">
-			<label for="tgToken">Bot token</label>
-			<input id="tgToken" type="password" autocomplete="off" placeholder="123456:ABC-DEF..." style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
-		</div>
-		<div class="form-row">
-			<label for="tgOwnerIDs">Owner Telegram IDs (comma-separated)</label>
-			<input id="tgOwnerIDs" placeholder="e.g. 123456789, 987654321" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
-			<div class="help" style="margin-top:6px">Don't know your ID? DM your bot, then check server log for "drop msg from non-owner &lt;ID&gt;" and add it here.</div>
-		</div>
-		<div class="actions-row">
-			<button class="btn btn-outline" onclick="testTelegram()">Test connection</button>
-			<span id="tgTestResult" style="font-size:12px;color:var(--text-dim);margin-left:8px"></span>
-		</div>
-	</div>
-
-	<div class="card">
 		<h3>Obsidian Sync</h3>
 		<div class="help">Optional. When set, the server writes one markdown file per client into <code>&lt;vault&gt;/Clients/</code> with wikilinks to <code>&lt;vault&gt;/Topics/</code>. Open the vault in Obsidian to see the graph view. <strong>One-way</strong> — manual edits outside the "Custom Notes" section are overwritten on next profile update.</div>
 		<div class="form-row">
@@ -198,8 +180,6 @@ async function loadConfig() {
 		document.getElementById('systemPrompt').value = j.system_prompt || '';
 		flowSteps = j.flow_steps || [];
 		ownerJIDs = j.owner_jids || [];
-		document.getElementById('tgToken').value = j.telegram_bot_token || '';
-		document.getElementById('tgOwnerIDs').value = (j.owner_telegram_ids || []).join(', ');
 		document.getElementById('obsidianVault').value = j.obsidian_vault_path || '';
 		renderSteps();
 		renderAdminChips();
@@ -325,16 +305,12 @@ async function saveConfig() {
 			flowSteps[i].instruction = el.querySelector('textarea').value;
 		}
 	});
-	const tgIDsRaw = document.getElementById('tgOwnerIDs').value.trim();
-	const tgIDs = tgIDsRaw ? tgIDsRaw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)) : [];
 	const body = {
 		enabled: document.getElementById('enabled').checked,
 		model: document.getElementById('model').value,
 		system_prompt: document.getElementById('systemPrompt').value,
 		flow_steps: flowSteps,
 		owner_jids: ownerJIDs,
-		telegram_bot_token: document.getElementById('tgToken').value.trim(),
-		owner_telegram_ids: tgIDs,
 		obsidian_vault_path: document.getElementById('obsidianVault').value.trim(),
 	};
 	const r = await fetch('/api/agent/config', {
@@ -345,32 +321,6 @@ async function saveConfig() {
 	const j = await r.json();
 	if (!j.ok) alert('Save failed: ' + (j.error || 'unknown'));
 	else await loadAll();
-}
-
-async function testTelegram() {
-	const tok = document.getElementById('tgToken').value.trim();
-	const out = document.getElementById('tgTestResult');
-	if (!tok) { out.textContent = 'enter a token first'; out.style.color = 'var(--red, #c00)'; return; }
-	out.textContent = 'testing...';
-	out.style.color = 'var(--text-dim)';
-	try {
-		const r = await fetch('/api/telegram/test', {
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({token: tok}),
-		});
-		const j = await r.json();
-		if (j.ok) {
-			out.textContent = 'connected: @' + j.username + ' (id ' + j.id + ')';
-			out.style.color = 'var(--green, #080)';
-		} else {
-			out.textContent = 'failed: ' + (j.error || 'unknown');
-			out.style.color = 'var(--red, #c00)';
-		}
-	} catch (e) {
-		out.textContent = 'failed: ' + e.message;
-		out.style.color = 'var(--red, #c00)';
-	}
 }
 
 function escapeHTML(s) {
