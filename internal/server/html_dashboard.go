@@ -248,11 +248,27 @@ const dashboardHTML = `<!DOCTYPE html>
 			<div style="background:var(--code-bg,rgba(0,0,0,0.04));border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
 				<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">Step 2 — Get YOUR Telegram user ID</div>
 				<p style="margin:0 0 8px 0;font-size:13px;color:var(--text-muted);">This is <strong>your</strong> ID (so the bot will reply to you), NOT the bot's ID.</p>
-				<ol style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--text-muted);line-height:1.7;">
-					<li>Open Telegram, search <code>@userinfobot</code>, tap the result.</li>
+				<ol style="margin:0 0 12px 18px;padding:0;font-size:13px;color:var(--text-muted);line-height:1.7;">
+					<li>Open Telegram, search <code>@userinfobot</code>.</li>
+					<li><strong>Pick the right one</strong> — many fake copies exist. The real one looks exactly like this:
+						<div style="margin:8px 0;">
+							<img src="/static/assets/userinfobot.png" alt="@userinfobot search result"
+								style="max-width:340px;width:100%;border:1px solid var(--border);border-radius:6px;display:block;">
+						</div>
+						<div style="background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.3);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text-muted);margin-top:4px;">
+							<strong>Verify before tapping:</strong>
+							<ul style="margin:4px 0 0 16px;padding:0;line-height:1.6;">
+								<li>Display name: <code>User Info • Get ID • idbot</code></li>
+								<li>Handle exactly: <code>@userinfobot</code> (no extra letters/numbers)</li>
+								<li>White verification badge (⚙️ gear) next to the name</li>
+								<li>Avatar is a dark/green ID-card icon</li>
+							</ul>
+							If anything differs — wrong bot. Skip it.
+						</div>
+					</li>
 					<li>Tap <strong>Start</strong> at the bottom.</li>
-					<li>It replies with a block showing <code>Id: 123456789</code>. Copy that number.</li>
-					<li>Paste into <strong>Owner Telegram IDs</strong> below. For multiple admins, separate with commas.</li>
+					<li>Reply contains a line: <code>Id: 123456789</code>. Copy that number.</li>
+					<li>Paste into <strong>Owner Telegram IDs</strong> below. Multiple admins = comma-separated.</li>
 				</ol>
 			</div>
 

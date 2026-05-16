@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -24,6 +26,9 @@ import (
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/store"
 )
+
+//go:embed assets
+var staticAssets embed.FS
 
 // Server is the HTTP server that serves the UI and API.
 type Server struct {
@@ -243,6 +248,10 @@ func (s *Server) buildMux() http.Handler {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		fmt.Fprint(w, sharedJS)
 	})
+
+	// Embedded binary assets (images, etc) under /static/assets/...
+	assetsSub, _ := fs.Sub(staticAssets, "assets")
+	mux.Handle("/static/assets/", http.StripPrefix("/static/assets/", http.FileServer(http.FS(assetsSub))))
 
 	// Pages
 	mux.HandleFunc("/", s.handleDashboard)
