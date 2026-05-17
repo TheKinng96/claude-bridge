@@ -146,8 +146,9 @@ func (f *fakeExec) ExtractProfile(ctx context.Context, jid string) (*ProfileInfo
 type updateProfileCall struct{ JID, Field, Value string }
 
 type fakeStore struct {
-	mu  sync.Mutex
-	got []string
+	mu     sync.Mutex
+	got    []string
+	recent []DispatchTurn
 }
 
 func (f *fakeStore) SaveDispatchLog(ctx context.Context, ch, oid, msg, act, reply, errText string, dur int64) error {
@@ -155,6 +156,12 @@ func (f *fakeStore) SaveDispatchLog(ctx context.Context, ch, oid, msg, act, repl
 	defer f.mu.Unlock()
 	f.got = append(f.got, act+":"+reply)
 	return nil
+}
+
+func (f *fakeStore) RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]DispatchTurn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.recent, nil
 }
 
 func newTestDispatcher(reply string) (*Dispatcher, *fakeClaude, *fakeExec, *fakeStore) {

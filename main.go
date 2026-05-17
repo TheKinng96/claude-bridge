@@ -43,6 +43,27 @@ var allowedProfileFields = map[string]bool{
 	"custom_notes": true,
 }
 
+// dispatchStoreAdapter implements agent.DispatchStore by translating between
+// store.DispatchLogEntry and the smaller agent.DispatchTurn shape so the
+// agent package doesn't need to import store.
+type dispatchStoreAdapter struct{ s *store.Store }
+
+func (a *dispatchStoreAdapter) SaveDispatchLog(ctx context.Context, channel, ownerID, message, action, userReply, errText string, durationMS int64) error {
+	return a.s.SaveDispatchLog(ctx, channel, ownerID, message, action, userReply, errText, durationMS)
+}
+
+func (a *dispatchStoreAdapter) RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]agent.DispatchTurn, error) {
+	entries, err := a.s.RecentDispatchTurns(ctx, channel, ownerID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.DispatchTurn, len(entries))
+	for i, e := range entries {
+		out[i] = agent.DispatchTurn{Message: e.Message, UserReply: e.UserReply, CreatedAt: e.CreatedAt}
+	}
+	return out, nil
+}
+
 // dispatchExecutor implements agent.Executor by bridging Dispatcher actions to
 // the WhatsApp connector, batch queue, SQLite store, and profile extractor.
 type dispatchExecutor struct {
@@ -116,28 +137,51 @@ func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.Pend
 	return out, nil
 }
 
-// ResolveContact looks up contacts matching query (case-insensitive against
-// name or JID). Returns 0, 1, or many matches; the dispatcher uses the count
-// to decide whether to send, ask for clarification, or report not-found.
+// ResolveContact looks up contacts matching query. Matches by name substring
+// (case-insensitive) OR by phone digits (strips +, -, spaces, parens). Phone
+// match looks at the JID's local part for s.whatsapp.net contacts.
 func (e *dispatchExecutor) ResolveContact(ctx context.Context, query string) ([]agent.ContactSummary, error) {
-	query = strings.ToLower(strings.TrimSpace(query))
+	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, nil
 	}
+	nameNeedle := strings.ToLower(query)
+	phoneNeedle := digitsOnly(query)
 	live := e.wa.GetContacts()
 	out := make([]agent.ContactSummary, 0, 4)
 	for _, c := range live {
-		hay := strings.ToLower(c.PushName + " " + c.JID)
-		if !strings.Contains(hay, query) {
-			continue
+		match := false
+		if strings.Contains(strings.ToLower(c.PushName), nameNeedle) ||
+			strings.Contains(strings.ToLower(c.JID), nameNeedle) {
+			match = true
 		}
-		out = append(out, agent.ContactSummary{
-			JID:      c.JID,
-			PushName: c.PushName,
-			Platform: "whatsapp",
-		})
+		if !match && phoneNeedle != "" && strings.HasSuffix(c.JID, "@s.whatsapp.net") {
+			// JID local part = phone digits for s.whatsapp.net contacts.
+			local := strings.SplitN(c.JID, "@", 2)[0]
+			if strings.Contains(digitsOnly(local), phoneNeedle) {
+				match = true
+			}
+		}
+		if match {
+			out = append(out, agent.ContactSummary{
+				JID:      c.JID,
+				PushName: c.PushName,
+				Platform: "whatsapp",
+			})
+		}
 	}
 	return out, nil
+}
+
+// digitsOnly strips everything except 0-9 from s.
+func digitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (e *dispatchExecutor) ListContacts(ctx context.Context, search string, limit int) ([]agent.ContactSummary, int, error) {
@@ -179,10 +223,28 @@ func (e *dispatchExecutor) GetProfile(ctx context.Context, q agent.ProfileQuery)
 	} else if q.Name != "" {
 		p, err = e.store.FindClientProfileByName(ctx, q.Name)
 	}
-	if err != nil || p == nil {
+	if err != nil {
 		return nil, err
 	}
-	return profileToInfo(p), nil
+	if p != nil {
+		return profileToInfo(p), nil
+	}
+	// No client_profiles row — fall back to the live WhatsApp contact so the
+	// owner at least gets a name for the number/JID they asked about.
+	query := q.JID
+	if query == "" {
+		query = q.Name
+	}
+	matches, _ := e.ResolveContact(ctx, query)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	c := matches[0]
+	return &agent.ProfileInfo{
+		JID:         c.JID,
+		DisplayName: c.PushName,
+		CustomNotes: "(no profile yet — name from WhatsApp contact only)",
+	}, nil
 }
 
 func (e *dispatchExecutor) UpdateProfile(ctx context.Context, jid, field, value string) error {
@@ -460,7 +522,7 @@ func main() {
 			extractor: extractor,
 			obsidian:  obsidianWriter,
 		},
-		appStore,
+		&dispatchStoreAdapter{s: appStore},
 	)
 	agentRunner.SetDispatcher(dispatcher)
 

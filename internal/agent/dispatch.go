@@ -96,11 +96,19 @@ type Executor interface {
 	ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error)
 }
 
-// DispatchStore captures the audit-log dependency. Real impl is *store.Store.
-// Action is passed as a plain string so the store package doesn't need to
-// import the agent package for the type.
+// DispatchStore captures the audit-log + memory dependency. Real impl is
+// *store.Store. Action is passed as a plain string so the store package
+// doesn't need to import the agent package for the type.
 type DispatchStore interface {
 	SaveDispatchLog(ctx context.Context, channel, ownerID, message, action, userReply, errText string, durationMS int64) error
+	RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]DispatchTurn, error)
+}
+
+// DispatchTurn is one prior exchange used to give Claude conversational memory.
+type DispatchTurn struct {
+	Message   string
+	UserReply string
+	CreatedAt time.Time
 }
 
 // DispatchInput is one owner-originated request.
@@ -166,6 +174,13 @@ Rules:
 // sync with dispatchSystemPrompt schema.
 const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, reply`
 
+// memoryWindow is how far back to pull prior turns when building the prompt
+// for context. Keep small to limit prompt growth.
+const (
+	memoryWindow = 30 * time.Minute
+	memoryTurns  = 5
+)
+
 // Run executes one dispatch turn. Returns the reply to send back to the owner.
 func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 	start := time.Now()
@@ -178,8 +193,8 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		return res
 	}
 
-	user := fmt.Sprintf("Owner channel: %s\nOwner ID: %s\nAvailable actions: %s\n\nOwner message:\n%s",
-		in.Channel, in.OwnerID, actionCatalog, in.Message)
+	recent := d.recentTurns(ctx, in)
+	user := buildDispatchUserPrompt(in, recent)
 
 	raw, err := d.Claude.Reply(ctx, dispatchSystemPrompt, user)
 	if err != nil {
@@ -499,6 +514,40 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 	default:
 		return "", fmt.Errorf("unknown action %q", p.Action)
 	}
+}
+
+// recentTurns fetches conversational memory for this owner+channel. Returns
+// nil if memory is unavailable (no store, query error, etc) — memory is
+// best-effort, never fatal.
+func (d *Dispatcher) recentTurns(ctx context.Context, in DispatchInput) []DispatchTurn {
+	if d.Store == nil {
+		return nil
+	}
+	turns, err := d.Store.RecentDispatchTurns(ctx, in.Channel, in.OwnerID, memoryWindow, memoryTurns)
+	if err != nil {
+		return nil
+	}
+	return turns
+}
+
+// buildDispatchUserPrompt assembles the user-side prompt: prior turns (oldest
+// first) then the current message.
+func buildDispatchUserPrompt(in DispatchInput, recent []DispatchTurn) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Owner channel: %s\nOwner ID: %s\nAvailable actions: %s\n\n", in.Channel, in.OwnerID, actionCatalog)
+
+	if len(recent) > 0 {
+		b.WriteString("Recent conversation (oldest first, for context — don't re-execute):\n")
+		// store returns newest-first; reverse for chronological display.
+		for i := len(recent) - 1; i >= 0; i-- {
+			t := recent[i]
+			fmt.Fprintf(&b, "Owner: %s\nYou: %s\n", t.Message, t.UserReply)
+		}
+		b.WriteString("\n")
+	}
+
+	fmt.Fprintf(&b, "Owner message:\n%s", in.Message)
+	return b.String()
 }
 
 // logAsync writes to the audit log without blocking the caller. Errors are

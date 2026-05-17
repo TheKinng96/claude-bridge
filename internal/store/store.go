@@ -1853,6 +1853,36 @@ func (s *Store) SaveDispatchLog(ctx context.Context, channel, ownerID, message, 
 	return err
 }
 
+// RecentDispatchTurns returns dispatch turns for one owner+channel that
+// landed within `since` ago, newest first, capped at limit. Used by the
+// dispatcher to give Claude a short memory of the preceding exchange.
+func (s *Store) RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]DispatchLogEntry, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	cutoff := time.Now().Add(-since)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, channel, owner_id, message, action, user_reply, error_text, duration_ms, created_at
+		 FROM dispatch_log
+		 WHERE channel = ? AND owner_id = ? AND created_at >= ?
+		 ORDER BY created_at DESC
+		 LIMIT ?`,
+		channel, ownerID, cutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DispatchLogEntry
+	for rows.Next() {
+		var e DispatchLogEntry
+		if err := rows.Scan(&e.ID, &e.Channel, &e.OwnerID, &e.Message, &e.Action, &e.UserReply, &e.ErrorText, &e.DurationMS, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // ListDispatchLogs returns the most recent N audit entries, newest first.
 func (s *Store) ListDispatchLogs(ctx context.Context, limit int) ([]DispatchLogEntry, error) {
 	if limit <= 0 {
