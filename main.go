@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -116,32 +117,34 @@ func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.Pend
 }
 
 func (e *dispatchExecutor) ListContacts(ctx context.Context, search string, limit int) ([]agent.ContactSummary, int, error) {
-	// Read from cached_contacts — the actual WhatsApp roster — not from the
-	// app's manually-managed contacts table (which only holds rows assigned
-	// to groups). store.GetCachedContacts handles search + limit in SQL.
-	// We do a second unlimited query just to learn the total so the reply
-	// can say "20 of 60".
-	rows, _, err := e.store.GetCachedContacts(ctx, "whatsapp", strings.TrimSpace(search), limit)
-	if err != nil {
-		return nil, 0, err
-	}
-	allMatch, _, err := e.store.GetCachedContacts(ctx, "whatsapp", strings.TrimSpace(search), 0)
-	if err != nil {
-		return nil, 0, err
-	}
-	out := make([]agent.ContactSummary, 0, len(rows))
-	for _, c := range rows {
-		name := c.Name
-		if name == "" {
-			name = c.Username
+	// Read from whatsmeow's live contact store — the full WhatsApp roster.
+	// store.cached_contacts is only seeded on inbound messages, so it
+	// undercounts the user's actual roster (60 vs 100+).
+	live := e.wa.GetContacts()
+	needle := strings.ToLower(strings.TrimSpace(search))
+	matched := make([]agent.ContactSummary, 0, len(live))
+	for _, c := range live {
+		if needle != "" {
+			hay := strings.ToLower(c.PushName + " " + c.JID)
+			if !strings.Contains(hay, needle) {
+				continue
+			}
 		}
-		out = append(out, agent.ContactSummary{
-			JID:      c.ContactID,
-			PushName: name,
-			Platform: c.Platform,
+		matched = append(matched, agent.ContactSummary{
+			JID:      c.JID,
+			PushName: c.PushName,
+			Platform: "whatsapp",
 		})
 	}
-	return out, len(allMatch), nil
+	// Sort by name (case-insensitive) for stable presentation.
+	sort.Slice(matched, func(i, j int) bool {
+		return strings.ToLower(matched[i].PushName) < strings.ToLower(matched[j].PushName)
+	})
+	total := len(matched)
+	if limit > 0 && len(matched) > limit {
+		matched = matched[:limit]
+	}
+	return matched, total, nil
 }
 
 func (e *dispatchExecutor) GetProfile(ctx context.Context, q agent.ProfileQuery) (*agent.ProfileInfo, error) {
