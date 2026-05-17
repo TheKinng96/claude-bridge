@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
+	"time"
 
 	"claude-bridge/internal/agent"
 	"claude-bridge/internal/batch"
@@ -384,11 +386,40 @@ func main() {
 	)
 	agentRunner.SetDispatcher(dispatcher)
 
-	// Start Telegram connector if configured. Owner-allowlisted long-poll
-	// with dispatch handler — owner messages run through Claude+executor.
-	tgClient := bootTelegram(context.Background(), appStore, dispatcher)
-	if tgClient != nil {
-		srv.SetTelegram(tgClient)
+	// Telegram connector with live-reload support. The save handler on the
+	// dashboard calls srv.tgReloader after persisting new TG fields — that
+	// invokes restartTelegram below, which stops the running long-poll (if
+	// any) and starts a fresh one with the new token + allowlist. No app
+	// restart required.
+	var (
+		tgMu      sync.Mutex
+		tgCurrent *telegram.Client
+	)
+	restartTelegram := func() error {
+		tgMu.Lock()
+		defer tgMu.Unlock()
+
+		if tgCurrent != nil {
+			tgCurrent.Stop()
+			tgCurrent = nil
+			srv.SetTelegram(nil)
+			// Give Telegram's edge a moment to release the prior long-poll
+			// connection so a new getUpdates doesn't trip Conflict 409.
+			time.Sleep(300 * time.Millisecond)
+		}
+		c := bootTelegram(context.Background(), appStore, dispatcher)
+		if c != nil {
+			srv.SetTelegram(c)
+			tgCurrent = c
+		}
+		return nil
+	}
+	srv.SetTelegramReloader(restartTelegram)
+
+	// Initial boot from saved config.
+	if c := bootTelegram(context.Background(), appStore, dispatcher); c != nil {
+		tgCurrent = c
+		srv.SetTelegram(c)
 	}
 
 	if err := srv.Start(); err != nil {

@@ -288,11 +288,11 @@ const dashboardHTML = `<!DOCTYPE html>
 				<span id="dTgTestResult" style="font-size:12px;color:var(--text-dim);"></span>
 			</div>
 
-			<div style="background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px;color:var(--text-muted);">
-				⚠️ <strong>After saving, restart the app</strong> for changes to take effect. The bot only loads its token at boot.
+			<div style="font-size:12px;color:var(--text-dim);margin-top:10px;">
+				Save takes effect immediately — the bot's long-poll restarts in the background with the new token + allowlist. No app restart needed.
 			</div>
 
-			<div style="font-size:12px;color:var(--text-dim);margin-top:10px;">
+			<div style="font-size:12px;color:var(--text-dim);margin-top:6px;">
 				Once active: DM your bot anything (e.g. <code>what's pending</code>, <code>summary inbox</code>, <code>tell me about &lt;name&gt;</code>) and it replies with Claude-dispatched action results.
 			</div>
 		</div>
@@ -804,7 +804,11 @@ async function saveDispatch() {
 		});
 		const j = await r.json();
 		if (!j.ok) { alert('Save failed: ' + (j.error || 'unknown')); return; }
-		alert('Saved. Restart the app for changes to take effect.');
+		const out = document.getElementById('dTgTestResult');
+		out.textContent = j.telegram_reload_warning
+			? 'saved — reload warning: ' + j.telegram_reload_warning
+			: 'saved — bot is live';
+		out.style.color = j.telegram_reload_warning ? '#eab308' : '#22c55e';
 		updateDispatchBadge(body);
 	} catch (e) {
 		alert('Save failed: ' + e.message);

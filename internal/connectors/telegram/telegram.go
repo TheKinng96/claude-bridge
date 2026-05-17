@@ -64,6 +64,7 @@ type Client struct {
 
 	mu     sync.RWMutex
 	offset int64
+	cancel context.CancelFunc // set in Start so Stop can signal the long-poll loop to exit
 }
 
 // Option configures a Client.
@@ -100,6 +101,17 @@ func (c *Client) SetHandler(h Handler) {
 	c.mu.Lock()
 	c.handler = h
 	c.mu.Unlock()
+}
+
+// Stop signals a running Start to exit by cancelling its derived context.
+// Safe to call on a client that hasn't been started.
+func (c *Client) Stop() {
+	c.mu.Lock()
+	cancel := c.cancel
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // IsAllowed reports whether the given Telegram user ID is in the owner allowlist.
@@ -152,10 +164,20 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, path, caption stri
 	return fmt.Errorf("SendPhoto: not implemented in P1 (deferred to P4)")
 }
 
-// Start begins the long-poll loop. Blocks until ctx is cancelled.
-// Errors are logged and the loop continues — a bot should be resilient to
-// transient network failures.
+// Start begins the long-poll loop. Blocks until ctx is cancelled or Stop is
+// called. Errors are logged and the loop continues — a bot should be resilient
+// to transient network failures.
 func (c *Client) Start(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	c.mu.Lock()
+	c.cancel = cancel
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.cancel = nil
+		c.mu.Unlock()
+	}()
+
 	c.logger.Printf("telegram: long-poll starting")
 	for {
 		if err := ctx.Err(); err != nil {

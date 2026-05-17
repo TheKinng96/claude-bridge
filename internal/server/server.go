@@ -43,6 +43,7 @@ type Server struct {
 	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
 	agentRunner   agentRunner
 	tg            *telegram.Client // nil if not configured
+	tgReloader    func() error     // optional: called after agent config POST to live-reload Telegram
 	updateReady   bool
 	port          int
 	listener      net.Listener
@@ -63,6 +64,11 @@ func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
 // SetTelegram attaches the Telegram connector so HTTP handlers (settings UI,
 // test-connection endpoint, dispatch loop) can reach it.
 func (s *Server) SetTelegram(c *telegram.Client) { s.tg = c }
+
+// SetTelegramReloader registers a callback the config save handler invokes
+// after writing new Telegram fields so the long-poll restarts with fresh
+// token + allowlist instead of requiring a process restart.
+func (s *Server) SetTelegramReloader(f func() error) { s.tgReloader = f }
 
 // BatchQueue exposes the batch queue so other subsystems (dispatch executor)
 // can submit jobs directly without going through the HTTP layer.

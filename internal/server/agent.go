@@ -81,7 +81,20 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		// Live-reload Telegram if a reloader was registered. Failures are
+		// surfaced but don't fail the save — config was persisted; user can
+		// always restart manually.
+		var reloadWarn string
+		if s.tgReloader != nil {
+			if err := s.tgReloader(); err != nil {
+				reloadWarn = err.Error()
+			}
+		}
+		resp := map[string]any{"ok": true}
+		if reloadWarn != "" {
+			resp["telegram_reload_warning"] = reloadWarn
+		}
+		writeJSON(w, resp)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
