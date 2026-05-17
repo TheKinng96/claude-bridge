@@ -33,6 +33,7 @@ type fakeExec struct {
 	getProfileCalls     []ProfileQuery
 	updateProfileCalls  []updateProfileCall
 	extractProfileCalls []string
+	listContactsCalls   []listContactsCall
 
 	sendErr      error
 	broadcastErr error
@@ -40,12 +41,14 @@ type fakeExec struct {
 	pendingErr   error
 	summaryErr   error
 	profileErr   error
+	contactsErr  error
 
 	broadcastID string
 	searchHits  []KBHit
 	pendings    []PendingSummary
 	inboxBucket []InboxSummary
 	profile     *ProfileInfo
+	contacts    []ContactSummary
 }
 
 type sendCall struct{ Phone, Message, FromJID string }
@@ -91,6 +94,18 @@ func (f *fakeExec) SummarizeInbox(ctx context.Context, h int) ([]InboxSummary, e
 	defer f.mu.Unlock()
 	f.summaryCalls = append(f.summaryCalls, h)
 	return f.inboxBucket, f.summaryErr
+}
+
+func (f *fakeExec) ListContacts(ctx context.Context, search string, limit int) ([]ContactSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listContactsCalls = append(f.listContactsCalls, listContactsCall{search, limit})
+	return f.contacts, f.contactsErr
+}
+
+type listContactsCall struct {
+	Search string
+	Limit  int
 }
 
 func (f *fakeExec) GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -110,6 +111,32 @@ func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.Pend
 			Incoming:   r.IncomingMsg,
 			Proposed:   r.ProposedReply,
 		})
+	}
+	return out, nil
+}
+
+func (e *dispatchExecutor) ListContacts(ctx context.Context, search string, limit int) ([]agent.ContactSummary, error) {
+	all, err := e.store.ListContacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	search = strings.ToLower(strings.TrimSpace(search))
+	out := make([]agent.ContactSummary, 0, len(all))
+	for _, c := range all {
+		if search != "" {
+			hay := strings.ToLower(c.PushName + " " + c.JID)
+			if !strings.Contains(hay, search) {
+				continue
+			}
+		}
+		out = append(out, agent.ContactSummary{
+			JID:      c.JID,
+			PushName: c.PushName,
+			Platform: c.Platform,
+		})
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out, nil
 }
@@ -246,6 +273,27 @@ func bootTelegram(ctx context.Context, appStore *store.Store, dispatcher *agent.
 		if dispatcher == nil {
 			return "Got: " + m.Text
 		}
+		// Show "typing..." while the dispatcher runs (Claude calls take 3-15s
+		// typically). Telegram clears the status after 5s, so refresh every 4s
+		// until the handler returns or ctx ends.
+		stopTyping := make(chan struct{})
+		go func() {
+			_ = c.SendChatAction(ctx, m.Chat.ID, "typing")
+			tick := time.NewTicker(4 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-stopTyping:
+					return
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					_ = c.SendChatAction(ctx, m.Chat.ID, "typing")
+				}
+			}
+		}()
+		defer close(stopTyping)
+
 		res := dispatcher.Run(ctx, agent.DispatchInput{
 			Channel: "telegram",
 			OwnerID: fmt.Sprintf("%d", m.From.ID),

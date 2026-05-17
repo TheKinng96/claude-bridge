@@ -153,6 +153,23 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) (*M
 	return resp.Result, nil
 }
 
+// SendChatAction shows a transient activity indicator in the chat — most
+// commonly "typing" to signal the bot is working. Telegram clears the status
+// after 5 seconds or when the bot sends a real message, whichever comes first.
+// Valid actions: typing, upload_photo, record_video, upload_video,
+// record_voice, upload_voice, upload_document, choose_sticker, find_location,
+// record_video_note, upload_video_note.
+func (c *Client) SendChatAction(ctx context.Context, chatID int64, action string) error {
+	body := map[string]any{
+		"chat_id": chatID,
+		"action":  action,
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	return c.call(ctx, "sendChatAction", body, &resp)
+}
+
 // SendPhoto uploads a local file as a photo to chatID with optional caption.
 // path must be a readable local file.
 func (c *Client) SendPhoto(ctx context.Context, chatID int64, path, caption string) error {

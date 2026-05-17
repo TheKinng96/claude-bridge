@@ -20,6 +20,7 @@ const (
 	ActionSearchKB       Action = "search_kb"
 	ActionListPending    Action = "list_pending"
 	ActionSummaryInbox   Action = "summary_inbox"
+	ActionListContacts   Action = "list_contacts"
 	ActionGetProfile     Action = "get_profile"
 	ActionUpdateProfile  Action = "update_profile"
 	ActionExtractProfile Action = "extract_profile"
@@ -54,6 +55,13 @@ type InboxSummary struct {
 	LastWhenMS int64
 }
 
+// ContactSummary is one row for list_contacts output.
+type ContactSummary struct {
+	JID      string
+	PushName string
+	Platform string
+}
+
 // ProfileInfo is a flattened view of a client profile for dispatch output.
 type ProfileInfo struct {
 	JID         string
@@ -81,6 +89,7 @@ type Executor interface {
 	SearchKB(ctx context.Context, query string, limit int) ([]KBHit, error)
 	ListPendingReplies(ctx context.Context) ([]PendingSummary, error)
 	SummarizeInbox(ctx context.Context, hours int) ([]InboxSummary, error)
+	ListContacts(ctx context.Context, search string, limit int) ([]ContactSummary, error)
 	GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error)
 	UpdateProfile(ctx context.Context, jid, field, value string) error
 	ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error)
@@ -140,6 +149,7 @@ Action params:
 - search_kb: {"query": "policy renewal", "limit": 5} — search the knowledge base.
 - list_pending: {} — list pending replies awaiting owner review.
 - summary_inbox: {"hours": 24} — summarize who messaged the owner recently.
+- list_contacts: {"search": "alice", "limit": 20} — list known contacts; search is an optional substring against name/phone, limit defaults to 20 (max 50).
 - get_profile: {"jid": "601...", "name": "Alice"} — lookup client profile by JID or name (at least one).
 - update_profile: {"jid": "601...", "field": "custom_notes", "value": "VIP, prefers WhatsApp"} — edit one profile field. Allowed fields: display_name, role, language, family_notes, custom_notes.
 - extract_profile: {"jid": "601..."} — run Claude over recent messages to refresh the profile.
@@ -334,6 +344,35 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		var sb strings.Builder
 		for _, p := range pendings {
 			sb.WriteString(fmt.Sprintf("\n#%d %s: %s", p.ID, shortJID(p.ContactJID), truncate(p.Incoming, 60)))
+		}
+		return sb.String(), nil
+
+	case ActionListContacts:
+		var args struct {
+			Search string `json:"search"`
+			Limit  int    `json:"limit"`
+		}
+		_ = json.Unmarshal(p.Params, &args)
+		if args.Limit <= 0 {
+			args.Limit = 20
+		}
+		if args.Limit > 50 {
+			args.Limit = 50
+		}
+		rows, err := d.Exec.ListContacts(ctx, args.Search, args.Limit)
+		if err != nil {
+			return "", err
+		}
+		if len(rows) == 0 {
+			return "(no contacts)", nil
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "(%d shown)", len(rows))
+		for _, c := range rows {
+			sb.WriteString("\n• ")
+			sb.WriteString(displayOrJID(c.PushName, c.JID))
+			sb.WriteString(" — ")
+			sb.WriteString(shortJID(c.JID))
 		}
 		return sb.String(), nil
 
