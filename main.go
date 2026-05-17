@@ -115,30 +115,33 @@ func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.Pend
 	return out, nil
 }
 
-func (e *dispatchExecutor) ListContacts(ctx context.Context, search string, limit int) ([]agent.ContactSummary, error) {
-	all, err := e.store.ListContacts(ctx)
+func (e *dispatchExecutor) ListContacts(ctx context.Context, search string, limit int) ([]agent.ContactSummary, int, error) {
+	// Read from cached_contacts — the actual WhatsApp roster — not from the
+	// app's manually-managed contacts table (which only holds rows assigned
+	// to groups). store.GetCachedContacts handles search + limit in SQL.
+	// We do a second unlimited query just to learn the total so the reply
+	// can say "20 of 60".
+	rows, _, err := e.store.GetCachedContacts(ctx, "whatsapp", strings.TrimSpace(search), limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	search = strings.ToLower(strings.TrimSpace(search))
-	out := make([]agent.ContactSummary, 0, len(all))
-	for _, c := range all {
-		if search != "" {
-			hay := strings.ToLower(c.PushName + " " + c.JID)
-			if !strings.Contains(hay, search) {
-				continue
-			}
+	allMatch, _, err := e.store.GetCachedContacts(ctx, "whatsapp", strings.TrimSpace(search), 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]agent.ContactSummary, 0, len(rows))
+	for _, c := range rows {
+		name := c.Name
+		if name == "" {
+			name = c.Username
 		}
 		out = append(out, agent.ContactSummary{
-			JID:      c.JID,
-			PushName: c.PushName,
+			JID:      c.ContactID,
+			PushName: name,
 			Platform: c.Platform,
 		})
-		if len(out) >= limit {
-			break
-		}
 	}
-	return out, nil
+	return out, len(allMatch), nil
 }
 
 func (e *dispatchExecutor) GetProfile(ctx context.Context, q agent.ProfileQuery) (*agent.ProfileInfo, error) {

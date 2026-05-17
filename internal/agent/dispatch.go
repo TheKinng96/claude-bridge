@@ -89,7 +89,7 @@ type Executor interface {
 	SearchKB(ctx context.Context, query string, limit int) ([]KBHit, error)
 	ListPendingReplies(ctx context.Context) ([]PendingSummary, error)
 	SummarizeInbox(ctx context.Context, hours int) ([]InboxSummary, error)
-	ListContacts(ctx context.Context, search string, limit int) ([]ContactSummary, error)
+	ListContacts(ctx context.Context, search string, limit int) (rows []ContactSummary, total int, err error)
 	GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error)
 	UpdateProfile(ctx context.Context, jid, field, value string) error
 	ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error)
@@ -359,15 +359,19 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		if args.Limit > 50 {
 			args.Limit = 50
 		}
-		rows, err := d.Exec.ListContacts(ctx, args.Search, args.Limit)
+		rows, total, err := d.Exec.ListContacts(ctx, args.Search, args.Limit)
 		if err != nil {
 			return "", err
 		}
-		if len(rows) == 0 {
+		if total == 0 {
 			return "(no contacts)", nil
 		}
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "(%d shown)", len(rows))
+		if args.Search != "" {
+			fmt.Fprintf(&sb, "(%d match, showing %d)", total, len(rows))
+		} else {
+			fmt.Fprintf(&sb, "(%d total, showing %d)", total, len(rows))
+		}
 		for _, c := range rows {
 			sb.WriteString("\n• ")
 			sb.WriteString(displayOrJID(c.PushName, c.JID))

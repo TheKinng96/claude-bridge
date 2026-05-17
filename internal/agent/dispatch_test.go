@@ -47,8 +47,9 @@ type fakeExec struct {
 	searchHits  []KBHit
 	pendings    []PendingSummary
 	inboxBucket []InboxSummary
-	profile     *ProfileInfo
-	contacts    []ContactSummary
+	profile       *ProfileInfo
+	contacts      []ContactSummary
+	contactsTotal int
 }
 
 type sendCall struct{ Phone, Message, FromJID string }
@@ -96,11 +97,15 @@ func (f *fakeExec) SummarizeInbox(ctx context.Context, h int) ([]InboxSummary, e
 	return f.inboxBucket, f.summaryErr
 }
 
-func (f *fakeExec) ListContacts(ctx context.Context, search string, limit int) ([]ContactSummary, error) {
+func (f *fakeExec) ListContacts(ctx context.Context, search string, limit int) ([]ContactSummary, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listContactsCalls = append(f.listContactsCalls, listContactsCall{search, limit})
-	return f.contacts, f.contactsErr
+	total := f.contactsTotal
+	if total == 0 {
+		total = len(f.contacts)
+	}
+	return f.contacts, total, f.contactsErr
 }
 
 type listContactsCall struct {
