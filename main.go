@@ -116,6 +116,30 @@ func (e *dispatchExecutor) ListPendingReplies(ctx context.Context) ([]agent.Pend
 	return out, nil
 }
 
+// ResolveContact looks up contacts matching query (case-insensitive against
+// name or JID). Returns 0, 1, or many matches; the dispatcher uses the count
+// to decide whether to send, ask for clarification, or report not-found.
+func (e *dispatchExecutor) ResolveContact(ctx context.Context, query string) ([]agent.ContactSummary, error) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil, nil
+	}
+	live := e.wa.GetContacts()
+	out := make([]agent.ContactSummary, 0, 4)
+	for _, c := range live {
+		hay := strings.ToLower(c.PushName + " " + c.JID)
+		if !strings.Contains(hay, query) {
+			continue
+		}
+		out = append(out, agent.ContactSummary{
+			JID:      c.JID,
+			PushName: c.PushName,
+			Platform: "whatsapp",
+		})
+	}
+	return out, nil
+}
+
 func (e *dispatchExecutor) ListContacts(ctx context.Context, search string, limit int) ([]agent.ContactSummary, int, error) {
 	// Read from whatsmeow's live contact store — the full WhatsApp roster.
 	// store.cached_contacts is only seeded on inbound messages, so it

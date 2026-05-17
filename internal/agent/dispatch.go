@@ -90,6 +90,7 @@ type Executor interface {
 	ListPendingReplies(ctx context.Context) ([]PendingSummary, error)
 	SummarizeInbox(ctx context.Context, hours int) ([]InboxSummary, error)
 	ListContacts(ctx context.Context, search string, limit int) (rows []ContactSummary, total int, err error)
+	ResolveContact(ctx context.Context, query string) ([]ContactSummary, error)
 	GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error)
 	UpdateProfile(ctx context.Context, jid, field, value string) error
 	ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error)
@@ -144,7 +145,7 @@ Respond with ONE JSON object only — no preamble, no markdown fences. Schema:
 
 Action params:
 
-- send_whatsapp: {"phone": "60123456789", "message": "Hi Alice ..."} — single WhatsApp send.
+- send_whatsapp: {"phone": "60123456789", "name": "Alice", "message": "Hi Alice ..."} — single WhatsApp send. Provide EITHER phone OR name. If only a name is given (typical for the owner), the executor resolves it against contacts. Ambiguous matches come back with a list so you can ask the user which one to pick.
 - broadcast_whatsapp: {"recipients": ["60111...", "60222..."], "message": "..."} — paced bulk send via the batch queue.
 - search_kb: {"query": "policy renewal", "limit": 5} — search the knowledge base.
 - list_pending: {} — list pending replies awaiting owner review.
@@ -270,19 +271,57 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 	case ActionSendWhatsApp:
 		var args struct {
 			Phone   string `json:"phone"`
+			Name    string `json:"name"`
 			Message string `json:"message"`
 			FromJID string `json:"from_jid"`
 		}
 		if err := json.Unmarshal(p.Params, &args); err != nil {
 			return "", fmt.Errorf("send_whatsapp params: %w", err)
 		}
-		if args.Phone == "" || args.Message == "" {
-			return "", errors.New("send_whatsapp: phone and message required")
+		if args.Message == "" {
+			return "", errors.New("send_whatsapp: message required")
 		}
-		if err := d.Exec.SendWhatsAppMessage(ctx, args.Phone, args.Message, args.FromJID); err != nil {
+		phone := args.Phone
+		display := args.Phone
+		if phone == "" {
+			if args.Name == "" {
+				return "", errors.New("send_whatsapp: phone or name required")
+			}
+			matches, err := d.Exec.ResolveContact(ctx, args.Name)
+			if err != nil {
+				return "", err
+			}
+			switch len(matches) {
+			case 0:
+				return "(no contact matching '" + args.Name + "' — try a different name or use list_contacts)", nil
+			case 1:
+				phone = shortJID(matches[0].JID)
+				display = matches[0].PushName
+				if display == "" {
+					display = phone
+				}
+			default:
+				var sb strings.Builder
+				fmt.Fprintf(&sb, "(%d contacts match '%s' — be more specific:", len(matches), args.Name)
+				for i, m := range matches {
+					if i >= 5 {
+						sb.WriteString("\n  …")
+						break
+					}
+					sb.WriteString("\n  • ")
+					sb.WriteString(displayOrJID(m.PushName, m.JID))
+					sb.WriteString(" (")
+					sb.WriteString(shortJID(m.JID))
+					sb.WriteString(")")
+				}
+				sb.WriteString(")")
+				return sb.String(), nil
+			}
+		}
+		if err := d.Exec.SendWhatsAppMessage(ctx, phone, args.Message, args.FromJID); err != nil {
 			return "", err
 		}
-		return "(sent to " + args.Phone + ")", nil
+		return "(sent to " + display + ")", nil
 
 	case ActionBroadcast:
 		var args struct {

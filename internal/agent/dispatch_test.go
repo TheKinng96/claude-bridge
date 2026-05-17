@@ -34,6 +34,8 @@ type fakeExec struct {
 	updateProfileCalls  []updateProfileCall
 	extractProfileCalls []string
 	listContactsCalls   []listContactsCall
+	resolveCalls        []string
+	resolveResult       []ContactSummary
 
 	sendErr      error
 	broadcastErr error
@@ -95,6 +97,13 @@ func (f *fakeExec) SummarizeInbox(ctx context.Context, h int) ([]InboxSummary, e
 	defer f.mu.Unlock()
 	f.summaryCalls = append(f.summaryCalls, h)
 	return f.inboxBucket, f.summaryErr
+}
+
+func (f *fakeExec) ResolveContact(ctx context.Context, query string) ([]ContactSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resolveCalls = append(f.resolveCalls, query)
+	return f.resolveResult, f.contactsErr
 }
 
 func (f *fakeExec) ListContacts(ctx context.Context, search string, limit int) ([]ContactSummary, int, error) {
