@@ -24,6 +24,10 @@ const (
 	ActionGetProfile     Action = "get_profile"
 	ActionUpdateProfile  Action = "update_profile"
 	ActionExtractProfile Action = "extract_profile"
+	ActionListCowork     Action = "list_cowork"
+	ActionReadCowork     Action = "read_cowork"
+	ActionSearchCowork   Action = "search_cowork"
+	ActionEditCowork     Action = "edit_cowork"
 	ActionReply          Action = "reply"
 )
 
@@ -81,6 +85,29 @@ type ProfileQuery struct {
 	Name string
 }
 
+// CoworkFile is a flattened view of a cowork-folder file for dispatch output.
+type CoworkFile struct {
+	Name    string
+	Date    string // YYYY-MM-DD folder
+	Size    int64
+	IsText  bool
+	ModTime time.Time
+}
+
+// CoworkHit is one search match inside a cowork text file.
+type CoworkHit struct {
+	Date    string
+	Name    string
+	Line    int
+	Snippet string
+}
+
+// CoworkRead is the payload returned by ReadCowork.
+type CoworkRead struct {
+	File    CoworkFile
+	Content string
+}
+
 // Executor performs the resolved action. Real impl wraps wa + batch queue +
 // store + profile extractor; tests inject a stub.
 type Executor interface {
@@ -94,6 +121,10 @@ type Executor interface {
 	GetProfile(ctx context.Context, q ProfileQuery) (*ProfileInfo, error)
 	UpdateProfile(ctx context.Context, jid, field, value string) error
 	ExtractProfile(ctx context.Context, jid string) (*ProfileInfo, error)
+	ListCowork(ctx context.Context, date string) ([]CoworkFile, error)
+	ReadCowork(ctx context.Context, filename string) (*CoworkRead, error)
+	SearchCowork(ctx context.Context, query string, days int) ([]CoworkHit, error)
+	EditCowork(ctx context.Context, filename, op, content string) (*CoworkFile, error)
 }
 
 // DispatchStore captures the audit-log + memory dependency. Real impl is
@@ -146,7 +177,7 @@ const dispatchSystemPrompt = `You are the owner's dispatch agent. The owner mess
 Respond with ONE JSON object only — no preamble, no markdown fences. Schema:
 
 {
-  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "reply",
+  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "reply",
   "params": { ... },
   "user_reply": "Short status to send back to the owner (1-2 sentences)."
 }
@@ -162,6 +193,10 @@ Action params:
 - get_profile: {"jid": "601...", "name": "Alice"} — lookup client profile by JID or name (at least one).
 - update_profile: {"jid": "601...", "field": "custom_notes", "value": "VIP, prefers WhatsApp"} — edit one profile field. Allowed fields: display_name, role, language, family_notes, custom_notes.
 - extract_profile: {"jid": "601..."} — run Claude over recent messages to refresh the profile.
+- list_cowork: {"date": "today" | "yesterday" | "YYYY-MM-DD"} — list files inside the cowork folder for that date. Defaults to today when date is empty. Cowork files are outputs from routines (drafts, generated images, JSON dumps) plus anything the owner dropped into the folder by hand.
+- read_cowork: {"filename": "draft_tan.md" | "2026-05-19/draft_tan.md"} — return file content. Bare names fuzzy-match within the last 14 days, newest wins. Binary files (png/pdf) come back as a placeholder.
+- search_cowork: {"query": "tan ws", "days": 7} — grep across text files in recent date folders (days defaults to 7, max 30).
+- edit_cowork: {"filename": "draft_tan.md", "op": "append" | "replace", "content": "..."} — modify an existing text file. Use "append" to add a line/block; "replace" rewrites the entire file. Binary files cannot be edited.
 - reply: {} — just chat, no side effect.
 
 Rules:
@@ -172,7 +207,7 @@ Rules:
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
 // sync with dispatchSystemPrompt schema.
-const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, reply`
+const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, reply`
 
 // memoryWindow is how far back to pull prior turns when building the prompt
 // for context. Keep small to limit prompt growth.
@@ -490,6 +525,89 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		}
 		return "(profile refreshed)\n" + formatProfile(info), nil
 
+	case ActionListCowork:
+		var args struct {
+			Date string `json:"date"`
+		}
+		_ = json.Unmarshal(p.Params, &args)
+		files, err := d.Exec.ListCowork(ctx, args.Date)
+		if err != nil {
+			return "", err
+		}
+		if len(files) == 0 {
+			return "(no files)", nil
+		}
+		return formatCoworkList(args.Date, files), nil
+
+	case ActionReadCowork:
+		var args struct {
+			Filename string `json:"filename"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("read_cowork params: %w", err)
+		}
+		if strings.TrimSpace(args.Filename) == "" {
+			return "", errors.New("read_cowork: filename required")
+		}
+		out, err := d.Exec.ReadCowork(ctx, args.Filename)
+		if err != nil {
+			return "", err
+		}
+		if out == nil {
+			return "(no file)", nil
+		}
+		header := fmt.Sprintf("\n[%s/%s, %d bytes]\n", out.File.Date, out.File.Name, out.File.Size)
+		return header + out.Content, nil
+
+	case ActionSearchCowork:
+		var args struct {
+			Query string `json:"query"`
+			Days  int    `json:"days"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("search_cowork params: %w", err)
+		}
+		if strings.TrimSpace(args.Query) == "" {
+			return "", errors.New("search_cowork: query required")
+		}
+		hits, err := d.Exec.SearchCowork(ctx, args.Query, args.Days)
+		if err != nil {
+			return "", err
+		}
+		if len(hits) == 0 {
+			return "(no matches)", nil
+		}
+		var sb strings.Builder
+		for _, h := range hits {
+			fmt.Fprintf(&sb, "\n• %s/%s:%d — %s", h.Date, h.Name, h.Line, truncate(h.Snippet, 100))
+		}
+		return sb.String(), nil
+
+	case ActionEditCowork:
+		var args struct {
+			Filename string `json:"filename"`
+			Op       string `json:"op"`
+			Content  string `json:"content"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("edit_cowork params: %w", err)
+		}
+		if strings.TrimSpace(args.Filename) == "" {
+			return "", errors.New("edit_cowork: filename required")
+		}
+		if args.Content == "" {
+			return "", errors.New("edit_cowork: content required")
+		}
+		entry, err := d.Exec.EditCowork(ctx, args.Filename, args.Op, args.Content)
+		if err != nil {
+			return "", err
+		}
+		op := args.Op
+		if op == "" {
+			op = "append"
+		}
+		return fmt.Sprintf("(%s %s/%s, now %d bytes)", op, entry.Date, entry.Name, entry.Size), nil
+
 	case ActionSummaryInbox:
 		var args struct {
 			Hours int `json:"hours"`
@@ -596,6 +714,29 @@ func formatProfile(p *ProfileInfo) string {
 		b.WriteString("\nNotes: " + p.CustomNotes)
 	}
 	return b.String()
+}
+
+// formatCoworkList renders the list_cowork result with a date header and one
+// line per file (newest first). Truncates to 15 entries to fit Telegram.
+func formatCoworkList(date string, files []CoworkFile) string {
+	if date == "" {
+		date = "today"
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "(%d file(s) on %s)", len(files), date)
+	const maxRows = 15
+	for i, f := range files {
+		if i >= maxRows {
+			fmt.Fprintf(&sb, "\n  …+%d more", len(files)-maxRows)
+			break
+		}
+		kind := "txt"
+		if !f.IsText {
+			kind = "bin"
+		}
+		fmt.Fprintf(&sb, "\n• [%s] %s — %dB", kind, f.Name, f.Size)
+	}
+	return sb.String()
 }
 
 // shortJID strips the @s.whatsapp.net suffix for compact display.

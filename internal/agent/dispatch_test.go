@@ -36,6 +36,10 @@ type fakeExec struct {
 	listContactsCalls   []listContactsCall
 	resolveCalls        []string
 	resolveResult       []ContactSummary
+	coworkListCalls     []string
+	coworkReadCalls     []string
+	coworkSearchCalls   []coworkSearchCall
+	coworkEditCalls     []coworkEditCall
 
 	sendErr      error
 	broadcastErr error
@@ -52,6 +56,22 @@ type fakeExec struct {
 	profile       *ProfileInfo
 	contacts      []ContactSummary
 	contactsTotal int
+
+	coworkListResult   []CoworkFile
+	coworkReadResult   *CoworkRead
+	coworkSearchResult []CoworkHit
+	coworkEditResult   *CoworkFile
+	coworkErr          error
+}
+
+type coworkSearchCall struct {
+	Query string
+	Days  int
+}
+type coworkEditCall struct {
+	Filename string
+	Op       string
+	Content  string
 }
 
 type sendCall struct{ Phone, Message, FromJID string }
@@ -141,6 +161,34 @@ func (f *fakeExec) ExtractProfile(ctx context.Context, jid string) (*ProfileInfo
 	defer f.mu.Unlock()
 	f.extractProfileCalls = append(f.extractProfileCalls, jid)
 	return f.profile, f.profileErr
+}
+
+func (f *fakeExec) ListCowork(ctx context.Context, date string) ([]CoworkFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coworkListCalls = append(f.coworkListCalls, date)
+	return f.coworkListResult, f.coworkErr
+}
+
+func (f *fakeExec) ReadCowork(ctx context.Context, filename string) (*CoworkRead, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coworkReadCalls = append(f.coworkReadCalls, filename)
+	return f.coworkReadResult, f.coworkErr
+}
+
+func (f *fakeExec) SearchCowork(ctx context.Context, query string, days int) ([]CoworkHit, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coworkSearchCalls = append(f.coworkSearchCalls, coworkSearchCall{query, days})
+	return f.coworkSearchResult, f.coworkErr
+}
+
+func (f *fakeExec) EditCowork(ctx context.Context, filename, op, content string) (*CoworkFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coworkEditCalls = append(f.coworkEditCalls, coworkEditCall{filename, op, content})
+	return f.coworkEditResult, f.coworkErr
 }
 
 type updateProfileCall struct{ JID, Field, Value string }
@@ -412,5 +460,114 @@ func waitForLog(t *testing.T, st *fakeStore, want int) {
 	defer st.mu.Unlock()
 	if len(st.got) < want {
 		t.Errorf("log: got %d, want %d", len(st.got), want)
+	}
+}
+
+func TestRun_ListCowork(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"list_cowork","params":{"date":"today"},"user_reply":"today's files:"}`)
+	ex.coworkListResult = []CoworkFile{
+		{Name: "broadcast_tan_140000.md", Date: "2026-05-19", Size: 240, IsText: true},
+		{Name: "cover_140030.png", Date: "2026-05-19", Size: 51200, IsText: false},
+	}
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1"})
+	if res.Action != ActionListCowork {
+		t.Errorf("action=%s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "broadcast_tan") {
+		t.Errorf("expected file in reply: %s", res.UserReply)
+	}
+	if !strings.Contains(res.UserReply, "[txt]") || !strings.Contains(res.UserReply, "[bin]") {
+		t.Errorf("expected [txt]/[bin] markers: %s", res.UserReply)
+	}
+	if len(ex.coworkListCalls) != 1 || ex.coworkListCalls[0] != "today" {
+		t.Errorf("expected list call with date=today, got %v", ex.coworkListCalls)
+	}
+}
+
+func TestRun_ListCoworkEmpty(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"list_cowork","params":{},"user_reply":"nothing today."}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if !strings.Contains(res.UserReply, "no files") {
+		t.Errorf("expected '(no files)' marker: %s", res.UserReply)
+	}
+}
+
+func TestRun_ReadCowork(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"read_cowork","params":{"filename":"draft_tan.md"},"user_reply":"here:"}`)
+	ex.coworkReadResult = &CoworkRead{
+		File:    CoworkFile{Name: "draft_tan.md", Date: "2026-05-19", Size: 42, IsText: true},
+		Content: "Hi Tan WS — your renewal is ready.",
+	}
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Action != ActionReadCowork {
+		t.Errorf("action=%s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "Hi Tan WS") {
+		t.Errorf("expected file body in reply: %s", res.UserReply)
+	}
+	if !strings.Contains(res.UserReply, "2026-05-19/draft_tan.md") {
+		t.Errorf("expected file header: %s", res.UserReply)
+	}
+	if len(ex.coworkReadCalls) != 1 || ex.coworkReadCalls[0] != "draft_tan.md" {
+		t.Errorf("expected one read call with that filename, got %v", ex.coworkReadCalls)
+	}
+}
+
+func TestRun_ReadCoworkMissingFilename(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"read_cowork","params":{},"user_reply":"?"}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error == "" {
+		t.Errorf("expected error when filename missing")
+	}
+}
+
+func TestRun_SearchCowork(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"search_cowork","params":{"query":"tan","days":3},"user_reply":"found:"}`)
+	ex.coworkSearchResult = []CoworkHit{
+		{Date: "2026-05-19", Name: "draft.md", Line: 3, Snippet: "Hi Tan WS"},
+	}
+	res := d.Run(context.Background(), DispatchInput{})
+	if !strings.Contains(res.UserReply, "draft.md:3") {
+		t.Errorf("expected filename:line: %s", res.UserReply)
+	}
+	if !strings.Contains(res.UserReply, "Hi Tan WS") {
+		t.Errorf("expected snippet: %s", res.UserReply)
+	}
+	if len(ex.coworkSearchCalls) != 1 || ex.coworkSearchCalls[0].Days != 3 {
+		t.Errorf("expected days=3 in search call, got %+v", ex.coworkSearchCalls)
+	}
+}
+
+func TestRun_SearchCoworkEmptyQuery(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"search_cowork","params":{"query":""},"user_reply":"?"}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error == "" {
+		t.Errorf("expected error for empty query")
+	}
+}
+
+func TestRun_EditCoworkAppend(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"edit_cowork","params":{"filename":"draft.md","op":"append","content":"P.S. extra"},"user_reply":"appended."}`)
+	ex.coworkEditResult = &CoworkFile{Name: "draft.md", Date: "2026-05-19", Size: 100, IsText: true}
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Action != ActionEditCowork {
+		t.Errorf("action=%s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "append") {
+		t.Errorf("expected 'append' in status: %s", res.UserReply)
+	}
+	if len(ex.coworkEditCalls) != 1 {
+		t.Errorf("expected 1 edit call, got %d", len(ex.coworkEditCalls))
+	}
+	if ex.coworkEditCalls[0].Content != "P.S. extra" {
+		t.Errorf("content mismatch: %q", ex.coworkEditCalls[0].Content)
+	}
+}
+
+func TestRun_EditCoworkRejectsEmptyContent(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"edit_cowork","params":{"filename":"draft.md","op":"append","content":""},"user_reply":"?"}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error == "" {
+		t.Errorf("expected error for empty content")
 	}
 }

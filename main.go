@@ -24,6 +24,7 @@ import (
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
+	"claude-bridge/internal/cowork"
 	"claude-bridge/internal/obsidian"
 	"claude-bridge/internal/profile"
 	"claude-bridge/internal/server"
@@ -72,6 +73,7 @@ type dispatchExecutor struct {
 	store     *store.Store
 	extractor *profile.Extractor
 	obsidian  *obsidian.Writer // nil-safe — Writer methods no-op when path is empty
+	cowork    *cowork.Root     // nil-safe via Enabled() — empty vault returns ErrDisabled
 }
 
 // syncObsidian writes the profile to the Obsidian vault if a writer is wired.
@@ -345,6 +347,71 @@ func (e *dispatchExecutor) SummarizeInbox(ctx context.Context, hours int) ([]age
 	return out, nil
 }
 
+// ListCowork lists files in the dated cowork folder under the Obsidian vault.
+func (e *dispatchExecutor) ListCowork(ctx context.Context, date string) ([]agent.CoworkFile, error) {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+	}
+	rows, err := e.cowork.List(date)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.CoworkFile, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, agent.CoworkFile{
+			Name: r.Name, Date: r.Date, Size: r.Size, IsText: r.IsText, ModTime: r.ModTime,
+		})
+	}
+	return out, nil
+}
+
+func (e *dispatchExecutor) ReadCowork(ctx context.Context, filename string) (*agent.CoworkRead, error) {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+	}
+	content, entry, err := e.cowork.Read(filename)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, nil
+	}
+	return &agent.CoworkRead{
+		File: agent.CoworkFile{
+			Name: entry.Name, Date: entry.Date, Size: entry.Size, IsText: entry.IsText, ModTime: entry.ModTime,
+		},
+		Content: content,
+	}, nil
+}
+
+func (e *dispatchExecutor) SearchCowork(ctx context.Context, query string, days int) ([]agent.CoworkHit, error) {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+	}
+	hits, err := e.cowork.Search(query, days)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.CoworkHit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, agent.CoworkHit{Date: h.Date, Name: h.Name, Line: h.Line, Snippet: h.Snippet})
+	}
+	return out, nil
+}
+
+func (e *dispatchExecutor) EditCowork(ctx context.Context, filename, op, content string) (*agent.CoworkFile, error) {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+	}
+	entry, err := e.cowork.Edit(filename, content, cowork.EditOp(op))
+	if err != nil {
+		return nil, err
+	}
+	return &agent.CoworkFile{
+		Name: entry.Name, Date: entry.Date, Size: entry.Size, IsText: entry.IsText, ModTime: entry.ModTime,
+	}, nil
+}
+
 // bootTelegram constructs and starts a Telegram client from saved agent
 // config. Returns nil if no token is configured. The handler routes inbound
 // owner messages through the dispatcher.
@@ -513,6 +580,7 @@ func main() {
 	extractor := profile.NewExtractor(knowClient)
 	dispatchCfg, _ := agent.LoadConfig(context.Background(), appStore)
 	obsidianWriter := obsidian.New(dispatchCfg.ObsidianVaultPath)
+	coworkRoot := cowork.New(dispatchCfg.ObsidianVaultPath)
 	dispatcher := agent.NewDispatcher(
 		knowClient,
 		&dispatchExecutor{
@@ -521,6 +589,7 @@ func main() {
 			store:     appStore,
 			extractor: extractor,
 			obsidian:  obsidianWriter,
+			cowork:    coworkRoot,
 		},
 		&dispatchStoreAdapter{s: appStore},
 	)
