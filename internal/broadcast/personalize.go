@@ -13,12 +13,25 @@ type claudeReplier interface {
 	Reply(ctx context.Context, systemPrompt, conversation string) (string, error)
 }
 
+// ProfileSnapshot is the per-contact enrichment data the personalizer can use
+// to tailor a message. Caller pulls it from the client_profiles table and
+// flattens to this struct so the broadcast package stays independent of store.
+type ProfileSnapshot struct {
+	Role        string
+	Language    string
+	FamilyNotes string
+	Interests   []string
+	LastTopics  []string
+	CustomNotes string
+}
+
 // Input describes one contact's data for personalization.
 type Input struct {
-	ContactName    string   // used for both {{name}} and {{push_name}} substitution; expose a separate PushName field here if callers ever need to distinguish.
-	BaseTemplate   string   // template with {{name}} etc. — also the fallback when Claude fails.
-	Instructions   string   // user-supplied tone/style guidance; empty = default instructions.
-	RecentMessages []string // most-recent inbound messages from this contact, oldest first.
+	ContactName    string           // used for both {{name}} and {{push_name}} substitution; expose a separate PushName field here if callers ever need to distinguish.
+	BaseTemplate   string           // template with {{name}} etc. — also the fallback when Claude fails.
+	Instructions   string           // user-supplied tone/style guidance; empty = default instructions.
+	RecentMessages []string         // most-recent inbound messages from this contact, oldest first.
+	Profile        *ProfileSnapshot // optional enrichment from client_profiles; nil = no profile data.
 }
 
 // Personalizer wraps Claude to generate one tailored message per contact.
@@ -64,6 +77,11 @@ func (p Personalizer) Generate(ctx context.Context, in Input) (string, error) {
 func buildUserPrompt(in Input, rendered string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Contact name: %s\n\n", in.ContactName)
+
+	if in.Profile != nil {
+		appendProfileBlock(&b, in.Profile)
+	}
+
 	if len(in.RecentMessages) > 0 {
 		b.WriteString("Recent messages from this contact (oldest first):\n")
 		for _, m := range in.RecentMessages {
@@ -73,4 +91,34 @@ func buildUserPrompt(in Input, rendered string) string {
 	}
 	fmt.Fprintf(&b, "Base message:\n%s\n", rendered)
 	return b.String()
+}
+
+// appendProfileBlock writes only the non-empty profile fields. Skipping empty
+// fields keeps prompts compact and avoids confusing Claude with placeholder
+// noise ("Family: ").
+func appendProfileBlock(b *strings.Builder, p *ProfileSnapshot) {
+	hadAny := false
+	write := func(label, value string) {
+		if value == "" {
+			return
+		}
+		if !hadAny {
+			b.WriteString("Contact profile:\n")
+			hadAny = true
+		}
+		fmt.Fprintf(b, "  %s: %s\n", label, value)
+	}
+	write("Role", p.Role)
+	write("Language", p.Language)
+	write("Family", p.FamilyNotes)
+	if len(p.Interests) > 0 {
+		write("Interests", strings.Join(p.Interests, ", "))
+	}
+	if len(p.LastTopics) > 0 {
+		write("Recent topics", strings.Join(p.LastTopics, ", "))
+	}
+	write("Notes", p.CustomNotes)
+	if hadAny {
+		b.WriteString("\n")
+	}
 }

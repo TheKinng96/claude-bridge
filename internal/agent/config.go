@@ -25,6 +25,9 @@ type Config struct {
 	OwnerJID          string     `json:"owner_jid"`           // deprecated — migrated to OwnerJIDs on load
 	OwnerJIDs         []string   `json:"owner_jids"`          // admin JIDs that receive notifications + can !login
 	AutoSyncFrequency string     `json:"auto_sync_frequency"` // "daily"|"weekly"|"off"
+	TelegramBotToken  string     `json:"telegram_bot_token"`  // bot token from @BotFather
+	OwnerTelegramIDs  []int64    `json:"owner_telegram_ids"`  // Telegram user IDs allowed to dispatch
+	ObsidianVaultPath string     `json:"obsidian_vault_path"` // local path; empty = Obsidian sync disabled
 }
 
 // DefaultFlowSteps are prepopulated when no steps are saved yet.

@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -18,11 +20,16 @@ import (
 	"claude-bridge/internal/browser"
 	"claude-bridge/internal/claude"
 	"claude-bridge/internal/connectors/facebook"
+	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
+	"claude-bridge/internal/cowork"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/store"
 )
+
+//go:embed assets
+var staticAssets embed.FS
 
 // Server is the HTTP server that serves the UI and API.
 type Server struct {
@@ -35,7 +42,10 @@ type Server struct {
 	knowPipeline  *knowledge.Pipeline
 	knowWatcher   *knowledge.Watcher
 	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
+	cowork        *cowork.Root        // nil-safe via Enabled(); cowork output folder
 	agentRunner   agentRunner
+	tg            *telegram.Client // nil if not configured
+	tgReloader    func() error     // optional: called after agent config POST to live-reload Telegram
 	updateReady   bool
 	port          int
 	listener      net.Listener
@@ -52,6 +62,35 @@ type agentRunner interface{}
 
 // SetAgent attaches the auto-reply agent runner.
 func (s *Server) SetAgent(r agentRunner) { s.agentRunner = r }
+
+// SetTelegram attaches the Telegram connector so HTTP handlers (settings UI,
+// test-connection endpoint, dispatch loop) can reach it.
+func (s *Server) SetTelegram(c *telegram.Client) { s.tg = c }
+
+// SetTelegramReloader registers a callback the config save handler invokes
+// after writing new Telegram fields so the long-poll restarts with fresh
+// token + allowlist instead of requiring a process restart.
+func (s *Server) SetTelegramReloader(f func() error) { s.tgReloader = f }
+
+// BatchQueue exposes the batch queue so other subsystems (dispatch executor)
+// can submit jobs directly without going through the HTTP layer.
+func (s *Server) BatchQueue() *batch.Queue { return s.batchQueue }
+
+// profileSnapshotFromStore flattens a store.ClientProfile into the broadcast
+// package's ProfileSnapshot so broadcast doesn't have to import store.
+func profileSnapshotFromStore(p *store.ClientProfile) *broadcast.ProfileSnapshot {
+	if p == nil {
+		return nil
+	}
+	return &broadcast.ProfileSnapshot{
+		Role:        p.Role,
+		Language:    p.Language,
+		FamilyNotes: p.FamilyNotes,
+		Interests:   p.Interests,
+		LastTopics:  p.LastTopics,
+		CustomNotes: p.CustomNotes,
+	}
+}
 
 // New creates a new server. Pass the connectors so the API can interact with them.
 func New(wa *whatsapp.Manager, fb *facebook.Connector, appStore *store.Store, browserEngine *browser.Engine, port int) *Server {
@@ -79,6 +118,13 @@ func (s *Server) SetKnowledge(c *claude.Client, p *knowledge.Pipeline, w *knowle
 // SetEmbedder attaches the Ollama embedder (nil = disabled).
 func (s *Server) SetEmbedder(e *knowledge.Embedder) {
 	s.knowEmbedder = e
+}
+
+// SetCowork attaches the cowork output-folder root. Used by the
+// /api/cowork/folder endpoint (and the get_cowork_folder MCP tool) so external
+// routines can learn where to write today's files.
+func (s *Server) SetCowork(c *cowork.Root) {
+	s.cowork = c
 }
 
 // SetUpdateReady signals that a new binary has been downloaded and is ready to apply.
@@ -175,6 +221,17 @@ func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]stri
 				}
 			}
 		}
+		// Pull client_profile if one exists. Phone is just the number; JID adds
+		// the whatsapp.net suffix. Profile lookup tolerates either by passing
+		// the phone through GetClientProfile and FindClientProfileByName.
+		var snap *broadcast.ProfileSnapshot
+		if s.store != nil {
+			jid := phone + "@s.whatsapp.net"
+			if cp, _ := s.store.GetClientProfile(ctx, jid); cp != nil {
+				snap = profileSnapshotFromStore(cp)
+			}
+		}
+
 		p := broadcast.Personalizer{Claude: s.knowClient}
 		// Generate never returns a non-nil error today (it logs and falls back to
 		// the rendered template), but check err defensively for future changes.
@@ -183,6 +240,7 @@ func (s *Server) executeWhatsAppSend(ctx context.Context, params map[string]stri
 			BaseTemplate:   params["message"], // pass raw template; Generate renders
 			Instructions:   params["instructions"],
 			RecentMessages: recent,
+			Profile:        snap,
 		})
 		if err == nil && generated != "" {
 			text = generated
@@ -205,6 +263,10 @@ func (s *Server) buildMux() http.Handler {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		fmt.Fprint(w, sharedJS)
 	})
+
+	// Embedded binary assets (images, etc) under /static/assets/...
+	assetsSub, _ := fs.Sub(staticAssets, "assets")
+	mux.Handle("/static/assets/", http.StripPrefix("/static/assets/", http.FileServer(http.FS(assetsSub))))
 
 	// Pages
 	mux.HandleFunc("/", s.handleDashboard)
@@ -277,6 +339,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/setup/agent", s.handleAgent)
 	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
 	mux.HandleFunc("/api/agent/replies", s.handleAgentReplies)
+	mux.HandleFunc("/api/telegram/test", s.handleTelegramTest)
 
 	// Contacts + Groups
 	mux.HandleFunc("/contacts", s.handleContactsPage)
@@ -300,6 +363,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/documents/search", s.handleDocumentsSearch)
 	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
 	mux.HandleFunc("/api/documents/unindexed-count", s.handleDocumentsUnindexedCount)
+	mux.HandleFunc("/api/cowork/folder", s.handleCoworkFolder)
 
 	// Self-update status + restart
 	mux.HandleFunc("/api/update/status", s.handleUpdateStatus)
@@ -434,6 +498,24 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 		ContactCount: s.wa.ContactCount(),
 	}
 	writeJSON(w, resp)
+}
+
+// handleCoworkFolder returns (and creates) the cowork output folder for a
+// given date. External routines call this — directly or via the
+// get_cowork_folder MCP tool — to learn where to write so the file is the
+// same one the Telegram dispatcher lists/reads/edits. Query: ?date=today |
+// yesterday | YYYY-MM-DD (default today).
+func (s *Server) handleCoworkFolder(w http.ResponseWriter, r *http.Request) {
+	if s.cowork == nil || !s.cowork.Enabled() {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "cowork disabled — set an Obsidian vault path in the agent config first"})
+		return
+	}
+	dir, err := s.cowork.EnsureDate(r.URL.Query().Get("date"))
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "path": dir})
 }
 
 // handleWAAccounts returns the list of all WhatsApp accounts.

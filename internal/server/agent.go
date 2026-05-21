@@ -6,6 +6,7 @@ import (
 
 	"claude-bridge/internal/agent"
 	"claude-bridge/internal/claude"
+	"claude-bridge/internal/connectors/telegram"
 )
 
 func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
@@ -22,6 +23,10 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		if ownerJIDs == nil {
 			ownerJIDs = []string{}
 		}
+		ownerTGIDs := cfg.OwnerTelegramIDs
+		if ownerTGIDs == nil {
+			ownerTGIDs = []int64{}
+		}
 		writeJSON(w, map[string]any{
 			"enabled":             cfg.Enabled,
 			"system_prompt":       cfg.SystemPrompt,
@@ -30,6 +35,9 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			"global_reply_mode":   cfg.GlobalReplyMode,
 			"owner_jids":          ownerJIDs,
 			"auto_sync_frequency": cfg.AutoSyncFrequency,
+			"telegram_bot_token":  cfg.TelegramBotToken,
+			"owner_telegram_ids":  ownerTGIDs,
+			"obsidian_vault_path": cfg.ObsidianVaultPath,
 		})
 	case http.MethodPost:
 		var body struct {
@@ -40,6 +48,9 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			GlobalReplyMode   string           `json:"global_reply_mode"`
 			OwnerJIDs         []string         `json:"owner_jids"`
 			AutoSyncFrequency string           `json:"auto_sync_frequency"`
+			TelegramBotToken  string           `json:"telegram_bot_token"`
+			OwnerTelegramIDs  []int64          `json:"owner_telegram_ids"`
+			ObsidianVaultPath string           `json:"obsidian_vault_path"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": "invalid JSON"})
@@ -53,6 +64,9 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			GlobalReplyMode:   body.GlobalReplyMode,
 			OwnerJIDs:         body.OwnerJIDs,
 			AutoSyncFrequency: body.AutoSyncFrequency,
+			TelegramBotToken:  body.TelegramBotToken,
+			OwnerTelegramIDs:  body.OwnerTelegramIDs,
+			ObsidianVaultPath: body.ObsidianVaultPath,
 		}
 		if cfg.GlobalReplyMode == "" {
 			cfg.GlobalReplyMode = "auto"
@@ -67,10 +81,56 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		// Live-reload Telegram if a reloader was registered. Failures are
+		// surfaced but don't fail the save — config was persisted; user can
+		// always restart manually.
+		var reloadWarn string
+		if s.tgReloader != nil {
+			if err := s.tgReloader(); err != nil {
+				reloadWarn = err.Error()
+			}
+		}
+		resp := map[string]any{"ok": true}
+		if reloadWarn != "" {
+			resp["telegram_reload_warning"] = reloadWarn
+		}
+		writeJSON(w, resp)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleTelegramTest verifies a Telegram bot token by calling getMe.
+// POST body: {"token": "..."} — uses the posted token rather than saved one so
+// the user can verify before persisting.
+func (s *Server) handleTelegramTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	if body.Token == "" {
+		writeJSON(w, map[string]any{"ok": false, "error": "token required"})
+		return
+	}
+	c := telegram.New(body.Token, nil)
+	me, err := c.GetMe(r.Context())
+	if err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{
+		"ok":         true,
+		"id":         me.ID,
+		"first_name": me.FirstName,
+		"username":   me.Username,
+	})
 }
 
 func (s *Server) handleAgentReplies(w http.ResponseWriter, r *http.Request) {

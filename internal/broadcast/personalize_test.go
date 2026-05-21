@@ -60,6 +60,65 @@ func TestPersonalize_FallbackOnError(t *testing.T) {
 	}
 }
 
+func TestPersonalize_ProfileFieldsAppearInPrompt(t *testing.T) {
+	fc := &fakeClient{reply: "Hi Alice, hope the policy renewal went smoothly!"}
+	p := Personalizer{Claude: fc}
+	_, err := p.Generate(context.Background(), Input{
+		ContactName:  "Alice",
+		BaseTemplate: "Hi {{name}}, our new product is here.",
+		Profile: &ProfileSnapshot{
+			Role:        "client",
+			Language:    "en",
+			FamilyNotes: "2 kids: Mia 8, Leo 5",
+			Interests:   []string{"family insurance", "savings"},
+			LastTopics:  []string{"renewal", "kids' policy"},
+			CustomNotes: "VIP",
+		},
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	want := []string{"Role: client", "Family: 2 kids", "Interests: family insurance, savings", "Recent topics: renewal", "Notes: VIP"}
+	for _, w := range want {
+		if !strings.Contains(fc.lastUser, w) {
+			t.Errorf("prompt missing %q\nPROMPT:\n%s", w, fc.lastUser)
+		}
+	}
+}
+
+func TestPersonalize_EmptyProfileFieldsOmitted(t *testing.T) {
+	fc := &fakeClient{reply: "ok"}
+	p := Personalizer{Claude: fc}
+	_, _ = p.Generate(context.Background(), Input{
+		ContactName:  "Alice",
+		BaseTemplate: "Hi {{name}}",
+		Profile: &ProfileSnapshot{
+			Role: "client",
+		},
+	})
+	if strings.Contains(fc.lastUser, "Family:") {
+		t.Errorf("empty family field should be omitted: %s", fc.lastUser)
+	}
+	if strings.Contains(fc.lastUser, "Interests:") {
+		t.Errorf("empty interests field should be omitted: %s", fc.lastUser)
+	}
+	if !strings.Contains(fc.lastUser, "Role: client") {
+		t.Errorf("role field missing: %s", fc.lastUser)
+	}
+}
+
+func TestPersonalize_NilProfileNoProfileBlock(t *testing.T) {
+	fc := &fakeClient{reply: "ok"}
+	p := Personalizer{Claude: fc}
+	_, _ = p.Generate(context.Background(), Input{
+		ContactName:  "Alice",
+		BaseTemplate: "Hi {{name}}",
+	})
+	if strings.Contains(fc.lastUser, "Contact profile:") {
+		t.Errorf("nil profile should not produce profile block: %s", fc.lastUser)
+	}
+}
+
 func TestPersonalize_TrimsWhitespace(t *testing.T) {
 	fc := &fakeClient{reply: "  \nHi Alice!\n  "}
 	p := Personalizer{Claude: fc}

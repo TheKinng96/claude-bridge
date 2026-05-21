@@ -16,17 +16,19 @@ import (
 )
 
 // Watcher walks a folder at startup (feeds the pipeline) and then watches for
-// subsequent changes via fsnotify. Call SetFolder to swap the root path at
-// runtime.
+// subsequent changes via fsnotify. Call SetFolder to swap the primary root at
+// runtime, or SetExtraRoots to register additional roots (e.g. the Cowork
+// output folder) that should be indexed alongside it.
 type Watcher struct {
 	store    *store.Store
 	pipeline *Pipeline
 
-	mu        sync.Mutex
-	folder    string
-	fsWatcher *fsnotify.Watcher
-	cancel    context.CancelFunc
-	running   bool
+	mu         sync.Mutex
+	folder     string   // primary root, set from the dashboard knowledge config
+	extraRoots []string // additional roots (e.g. <vault>/Cowork) — persisted across SetFolder
+	fsWatcher  *fsnotify.Watcher
+	cancel     context.CancelFunc
+	running    bool
 }
 
 // NewWatcher returns a stopped watcher.
@@ -34,12 +36,48 @@ func NewWatcher(s *store.Store, p *Pipeline) *Watcher {
 	return &Watcher{store: s, pipeline: p}
 }
 
-// SetFolder swaps the watched folder. Empty string stops the watcher.
+// SetFolder swaps the primary watched folder. Empty string clears it (extra
+// roots, if any, keep being watched). Extra roots are preserved.
 func (w *Watcher) SetFolder(folder string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.folder = folder
+	return w.rebuildLocked()
+}
 
-	// stop prior
+// SetExtraRoots registers additional directories indexed alongside the primary
+// folder (e.g. <vault>/Cowork). Persisted across SetFolder calls. Missing or
+// non-directory roots are skipped with a log line rather than failing — the
+// Cowork folder may not exist until the first routine writes to it. Pass no
+// args to clear.
+func (w *Watcher) SetExtraRoots(dirs ...string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.extraRoots = w.extraRoots[:0]
+	for _, d := range dirs {
+		if strings.TrimSpace(d) != "" {
+			w.extraRoots = append(w.extraRoots, d)
+		}
+	}
+	return w.rebuildLocked()
+}
+
+// allRootsLocked returns the primary folder (if set) followed by extra roots.
+// Caller must hold w.mu.
+func (w *Watcher) allRootsLocked() []string {
+	var roots []string
+	if w.folder != "" {
+		roots = append(roots, w.folder)
+	}
+	roots = append(roots, w.extraRoots...)
+	return roots
+}
+
+// rebuildLocked tears down any running watcher and starts a fresh one covering
+// every valid root. The primary folder is validated strictly (a bad path is a
+// hard error so the dashboard surfaces it); extra roots are best-effort.
+// Caller must hold w.mu.
+func (w *Watcher) rebuildLocked() error {
 	if w.fsWatcher != nil {
 		_ = w.fsWatcher.Close()
 		w.fsWatcher = nil
@@ -49,36 +87,44 @@ func (w *Watcher) SetFolder(folder string) error {
 		w.cancel = nil
 	}
 	w.running = false
-	w.folder = folder
 
-	if folder == "" {
+	var roots []string
+	if w.folder != "" {
+		info, err := os.Stat(w.folder)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return &fs.PathError{Op: "watch", Path: w.folder, Err: fs.ErrInvalid}
+		}
+		roots = append(roots, w.folder)
+	}
+	for _, r := range w.extraRoots {
+		info, err := os.Stat(r)
+		if err != nil || !info.IsDir() {
+			log.Printf("[knowledge] skip extra root %q: %v", r, err)
+			continue
+		}
+		roots = append(roots, r)
+	}
+	if len(roots) == 0 {
 		return nil
-	}
-
-	info, err := os.Stat(folder)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return &fs.PathError{Op: "watch", Path: folder, Err: fs.ErrInvalid}
 	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
-	// Add the root and every subdirectory.
-	if err := filepath.WalkDir(folder, func(path string, d fs.DirEntry, werr error) error {
-		if werr != nil {
-			return nil // skip unreadable entries
-		}
-		if d.IsDir() {
-			_ = watcher.Add(path)
-		}
-		return nil
-	}); err != nil {
-		_ = watcher.Close()
-		return err
+	for _, root := range roots {
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, werr error) error {
+			if werr != nil {
+				return nil // skip unreadable entries
+			}
+			if d.IsDir() {
+				_ = watcher.Add(path)
+			}
+			return nil
+		})
 	}
 
 	w.fsWatcher = watcher
@@ -88,11 +134,11 @@ func (w *Watcher) SetFolder(folder string) error {
 
 	go w.runEvents(ctx, watcher)
 	// No auto-scan: indexing is triggered manually via Rescan().
-	log.Printf("[knowledge] watching folder: %s", folder)
+	log.Printf("[knowledge] watching %d root(s): %v", len(roots), roots)
 	return nil
 }
 
-// Folder returns the currently watched folder (empty if none).
+// Folder returns the primary watched folder (empty if none).
 func (w *Watcher) Folder() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -106,16 +152,16 @@ func (w *Watcher) Running() bool {
 	return w.running
 }
 
-// Rescan triggers a full walk of the current folder, queuing every supported
+// Rescan triggers a full walk of every watched root, queuing every supported
 // file. Useful after a config change or manual dashboard button.
 func (w *Watcher) Rescan() {
 	w.mu.Lock()
-	folder := w.folder
+	roots := w.allRootsLocked()
 	w.mu.Unlock()
-	if folder == "" {
+	if len(roots) == 0 {
 		return
 	}
-	go w.initialScan(folder)
+	go w.initialScan(roots)
 }
 
 // Stop tears down the watcher.
@@ -133,7 +179,7 @@ func (w *Watcher) Stop() {
 	w.running = false
 }
 
-func (w *Watcher) initialScan(folder string) {
+func (w *Watcher) initialScan(roots []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -141,28 +187,31 @@ func (w *Watcher) initialScan(folder string) {
 	ready, _ := w.store.ReadyDocumentPaths(ctx)
 
 	seen := map[string]bool{}
-	_ = filepath.WalkDir(folder, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+	for _, root := range roots {
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if !IsSupported(path) {
+				return nil
+			}
+			seen[path] = true
+			if !ready[path] {
+				w.pipeline.Enqueue(path)
+			}
 			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !IsSupported(path) {
-			return nil
-		}
-		seen[path] = true
-		if !ready[path] {
-			w.pipeline.Enqueue(path)
-		}
-		return nil
-	})
+		})
+	}
 
-	// Prune rows that no longer exist on disk AND were inside the watched root.
+	// Prune rows that no longer exist on disk AND were inside one of the
+	// watched roots.
 	paths, err := w.store.AllDocumentPaths(ctx)
 	if err == nil {
 		for _, p := range paths {
-			if !strings.HasPrefix(p, folder) {
+			if !underAnyRoot(p, roots) {
 				continue
 			}
 			if !seen[p] {
@@ -170,6 +219,16 @@ func (w *Watcher) initialScan(folder string) {
 			}
 		}
 	}
+}
+
+// underAnyRoot reports whether path is inside any of the roots.
+func underAnyRoot(path string, roots []string) bool {
+	for _, root := range roots {
+		if strings.HasPrefix(path, root) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Watcher) runEvents(ctx context.Context, fw *fsnotify.Watcher) {
