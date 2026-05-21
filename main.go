@@ -399,6 +399,13 @@ func (e *dispatchExecutor) SearchCowork(ctx context.Context, query string, days 
 	return out, nil
 }
 
+func (e *dispatchExecutor) CoworkPath(ctx context.Context, date string) (string, error) {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return "", fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+	}
+	return e.cowork.EnsureDate(date)
+}
+
 func (e *dispatchExecutor) EditCowork(ctx context.Context, filename, op, content string) (*agent.CoworkFile, error) {
 	if e.cowork == nil || !e.cowork.Enabled() {
 		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
@@ -594,6 +601,21 @@ func main() {
 		&dispatchStoreAdapter{s: appStore},
 	)
 	agentRunner.SetDispatcher(dispatcher)
+
+	// Index the Cowork output folder into the knowledge base so routine
+	// outputs (md/pdf/images dropped by routines or the owner) become
+	// search_kb-visible. Best-effort — empty vault is a silent no-op. We
+	// ensure today's folder exists so the watcher has a directory to add;
+	// new date folders are picked up on the next Rescan.
+	srv.SetCowork(coworkRoot)
+	if coworkRoot.Enabled() {
+		if _, err := coworkRoot.EnsureToday(); err != nil {
+			log.Printf("[cowork] ensure today folder: %v", err)
+		}
+		if err := knowWatcher.SetExtraRoots(coworkRoot.Path); err != nil {
+			log.Printf("[cowork] register KB extra root: %v", err)
+		}
+	}
 
 	// Telegram connector with live-reload support. The save handler on the
 	// dashboard calls srv.tgReloader after persisting new TG fields — that

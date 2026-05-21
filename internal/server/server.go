@@ -22,6 +22,7 @@ import (
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
+	"claude-bridge/internal/cowork"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/store"
@@ -41,6 +42,7 @@ type Server struct {
 	knowPipeline  *knowledge.Pipeline
 	knowWatcher   *knowledge.Watcher
 	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
+	cowork        *cowork.Root        // nil-safe via Enabled(); cowork output folder
 	agentRunner   agentRunner
 	tg            *telegram.Client // nil if not configured
 	tgReloader    func() error     // optional: called after agent config POST to live-reload Telegram
@@ -116,6 +118,13 @@ func (s *Server) SetKnowledge(c *claude.Client, p *knowledge.Pipeline, w *knowle
 // SetEmbedder attaches the Ollama embedder (nil = disabled).
 func (s *Server) SetEmbedder(e *knowledge.Embedder) {
 	s.knowEmbedder = e
+}
+
+// SetCowork attaches the cowork output-folder root. Used by the
+// /api/cowork/folder endpoint (and the get_cowork_folder MCP tool) so external
+// routines can learn where to write today's files.
+func (s *Server) SetCowork(c *cowork.Root) {
+	s.cowork = c
 }
 
 // SetUpdateReady signals that a new binary has been downloaded and is ready to apply.
@@ -354,6 +363,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/documents/search", s.handleDocumentsSearch)
 	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
 	mux.HandleFunc("/api/documents/unindexed-count", s.handleDocumentsUnindexedCount)
+	mux.HandleFunc("/api/cowork/folder", s.handleCoworkFolder)
 
 	// Self-update status + restart
 	mux.HandleFunc("/api/update/status", s.handleUpdateStatus)
@@ -488,6 +498,24 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 		ContactCount: s.wa.ContactCount(),
 	}
 	writeJSON(w, resp)
+}
+
+// handleCoworkFolder returns (and creates) the cowork output folder for a
+// given date. External routines call this — directly or via the
+// get_cowork_folder MCP tool — to learn where to write so the file is the
+// same one the Telegram dispatcher lists/reads/edits. Query: ?date=today |
+// yesterday | YYYY-MM-DD (default today).
+func (s *Server) handleCoworkFolder(w http.ResponseWriter, r *http.Request) {
+	if s.cowork == nil || !s.cowork.Enabled() {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "cowork disabled — set an Obsidian vault path in the agent config first"})
+		return
+	}
+	dir, err := s.cowork.EnsureDate(r.URL.Query().Get("date"))
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "path": dir})
 }
 
 // handleWAAccounts returns the list of all WhatsApp accounts.

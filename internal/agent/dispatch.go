@@ -28,6 +28,7 @@ const (
 	ActionReadCowork     Action = "read_cowork"
 	ActionSearchCowork   Action = "search_cowork"
 	ActionEditCowork     Action = "edit_cowork"
+	ActionCoworkPath     Action = "cowork_path"
 	ActionReply          Action = "reply"
 )
 
@@ -125,6 +126,7 @@ type Executor interface {
 	ReadCowork(ctx context.Context, filename string) (*CoworkRead, error)
 	SearchCowork(ctx context.Context, query string, days int) ([]CoworkHit, error)
 	EditCowork(ctx context.Context, filename, op, content string) (*CoworkFile, error)
+	CoworkPath(ctx context.Context, date string) (string, error)
 }
 
 // DispatchStore captures the audit-log + memory dependency. Real impl is
@@ -197,6 +199,7 @@ Action params:
 - read_cowork: {"filename": "draft_tan.md" | "2026-05-19/draft_tan.md"} — return file content. Bare names fuzzy-match within the last 14 days, newest wins. Binary files (png/pdf) come back as a placeholder.
 - search_cowork: {"query": "tan ws", "days": 7} — grep across text files in recent date folders (days defaults to 7, max 30).
 - edit_cowork: {"filename": "draft_tan.md", "op": "append" | "replace", "content": "..."} — modify an existing text file. Use "append" to add a line/block; "replace" rewrites the entire file. Binary files cannot be edited.
+- cowork_path: {"date": "today" | "yesterday" | "YYYY-MM-DD"} — return (and create) the absolute path of the cowork folder for that date. Use when the owner asks where files go, or where a routine should write its output.
 - reply: {} — just chat, no side effect.
 
 Rules:
@@ -207,7 +210,7 @@ Rules:
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
 // sync with dispatchSystemPrompt schema.
-const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, reply`
+const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, cowork_path, reply`
 
 // memoryWindow is how far back to pull prior turns when building the prompt
 // for context. Keep small to limit prompt growth.
@@ -607,6 +610,17 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 			op = "append"
 		}
 		return fmt.Sprintf("(%s %s/%s, now %d bytes)", op, entry.Date, entry.Name, entry.Size), nil
+
+	case ActionCoworkPath:
+		var args struct {
+			Date string `json:"date"`
+		}
+		_ = json.Unmarshal(p.Params, &args)
+		path, err := d.Exec.CoworkPath(ctx, args.Date)
+		if err != nil {
+			return "", err
+		}
+		return "\n" + path, nil
 
 	case ActionSummaryInbox:
 		var args struct {

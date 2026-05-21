@@ -72,6 +72,31 @@ func (r *Root) DateFolder(t time.Time) string {
 	return filepath.Join(r.Path, t.Format("2006-01-02"))
 }
 
+// EnsureToday creates today's date folder (and the Cowork root) and returns
+// its absolute path. External routines call this — via the cowork_path
+// dispatch action or the get_cowork_folder MCP tool — to learn exactly where
+// to write so the file is the same one Telegram lists/reads/edits.
+func (r *Root) EnsureToday() (string, error) {
+	return r.EnsureDate("")
+}
+
+// EnsureDate creates the date folder for date ("", "today", "yesterday", or
+// YYYY-MM-DD) and returns its absolute path.
+func (r *Root) EnsureDate(date string) (string, error) {
+	if !r.Enabled() {
+		return "", ErrDisabled
+	}
+	t, err := r.ResolveDate(date)
+	if err != nil {
+		return "", fmt.Errorf("cowork: parse date %q: %w", date, err)
+	}
+	dir := r.DateFolder(t)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 // ResolveDate accepts "", "today", "yesterday", or YYYY-MM-DD.
 func (r *Root) ResolveDate(s string) (time.Time, error) {
 	s = strings.TrimSpace(strings.ToLower(s))

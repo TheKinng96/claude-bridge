@@ -40,6 +40,7 @@ type fakeExec struct {
 	coworkReadCalls     []string
 	coworkSearchCalls   []coworkSearchCall
 	coworkEditCalls     []coworkEditCall
+	coworkPathCalls     []string
 
 	sendErr      error
 	broadcastErr error
@@ -61,6 +62,7 @@ type fakeExec struct {
 	coworkReadResult   *CoworkRead
 	coworkSearchResult []CoworkHit
 	coworkEditResult   *CoworkFile
+	coworkPathResult   string
 	coworkErr          error
 }
 
@@ -189,6 +191,13 @@ func (f *fakeExec) EditCowork(ctx context.Context, filename, op, content string)
 	defer f.mu.Unlock()
 	f.coworkEditCalls = append(f.coworkEditCalls, coworkEditCall{filename, op, content})
 	return f.coworkEditResult, f.coworkErr
+}
+
+func (f *fakeExec) CoworkPath(ctx context.Context, date string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coworkPathCalls = append(f.coworkPathCalls, date)
+	return f.coworkPathResult, f.coworkErr
 }
 
 type updateProfileCall struct{ JID, Field, Value string }
@@ -569,5 +578,20 @@ func TestRun_EditCoworkRejectsEmptyContent(t *testing.T) {
 	res := d.Run(context.Background(), DispatchInput{})
 	if res.Error == "" {
 		t.Errorf("expected error for empty content")
+	}
+}
+
+func TestRun_CoworkPath(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"cowork_path","params":{"date":"today"},"user_reply":"write here:"}`)
+	ex.coworkPathResult = "/vault/Cowork/2026-05-20"
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Action != ActionCoworkPath {
+		t.Errorf("action=%s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "/vault/Cowork/2026-05-20") {
+		t.Errorf("expected path in reply: %s", res.UserReply)
+	}
+	if len(ex.coworkPathCalls) != 1 || ex.coworkPathCalls[0] != "today" {
+		t.Errorf("expected one path call with date=today, got %v", ex.coworkPathCalls)
 	}
 }

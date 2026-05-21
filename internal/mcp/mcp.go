@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -498,6 +499,19 @@ func getTools() []tool {
 				Required: []string{"id"},
 			},
 		},
+		{
+			Name:        "get_cowork_folder",
+			Description: "Return (and create) the absolute path of the cowork output folder for a date, e.g. <vault>/Cowork/2026-05-20/. Routines should write their output files here so the Telegram dispatcher can list, read, search, and edit them, and so they get indexed into the knowledge base. Call this at the start of a routine to learn where to write.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"date": map[string]interface{}{
+						"type":        "string",
+						"description": "Which day's folder: 'today' (default), 'yesterday', or an explicit YYYY-MM-DD.",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -567,9 +581,24 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 		return e.searchDocuments(args)
 	case "get_document":
 		return e.getDocument(args)
+	// Cowork
+	case "get_cowork_folder":
+		return e.getCoworkFolder(args)
 	default:
 		return errorResult(fmt.Sprintf("Unknown tool: %s", name))
 	}
+}
+
+func (e *toolExecutor) getCoworkFolder(args json.RawMessage) callToolResult {
+	var params struct {
+		Date string `json:"date"`
+	}
+	_ = json.Unmarshal(args, &params)
+	path := "/api/cowork/folder"
+	if params.Date != "" {
+		path += "?date=" + url.QueryEscape(params.Date)
+	}
+	return e.httpGet(path)
 }
 
 func (e *toolExecutor) httpGet(path string) callToolResult {
