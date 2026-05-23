@@ -182,4 +182,40 @@ func trimSnippet(s string) string {
 	return s
 }
 
-var _ = sort.Strings // used by Backlinks (Task 4)
+// Backlinks returns vault notes (by relative stem, e.g. "Clients/Alice") that
+// contain a [[wikilink]] to name. On-demand scan — fine for a personal vault.
+func (r *Reader) Backlinks(name string) ([]string, error) {
+	if !r.Enabled() {
+		return nil, ErrReaderDisabled
+	}
+	target := strings.ToLower(normalizeName(name))
+	if target == "" {
+		return nil, errors.New("obsidian: note name required")
+	}
+	seen := map[string]bool{}
+	var out []string
+	_ = filepath.WalkDir(r.VaultPath, func(p string, d os.DirEntry, e error) error {
+		if e != nil || d.IsDir() || !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		for _, m := range wikilinkRE.FindAllStringSubmatch(string(data), -1) {
+			l := strings.ToLower(normalizeName(m[1]))
+			if l == target || strings.EqualFold(filepath.Base(l), target) {
+				rel, _ := filepath.Rel(r.VaultPath, p)
+				key := strings.TrimSuffix(filepath.ToSlash(rel), ".md")
+				if !seen[key] {
+					seen[key] = true
+					out = append(out, key)
+				}
+				break
+			}
+		}
+		return nil
+	})
+	sort.Strings(out)
+	return out, nil
+}

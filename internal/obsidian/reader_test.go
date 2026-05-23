@@ -63,3 +63,24 @@ func TestReadNoteNotFound(t *testing.T) {
 		t.Fatal("expected not-found error")
 	}
 }
+
+func TestBacklinks(t *testing.T) {
+	vault := t.TempDir()
+	writeNote(t, vault, "Tan Policy.md", "# Tan Policy\n")
+	writeNote(t, vault, "Clients/Alice.md", "Refers to [[Tan Policy]].\n")
+	writeNote(t, vault, "Clients/Bob.md", "Also [[Tan Policy|the plan]] here.\n")
+	writeNote(t, vault, "Clients/Carol.md", "No links.\n")
+
+	r := NewReader(vault)
+	got, err := r.Backlinks("Tan Policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 backlinks, got %v", got)
+	}
+	// sorted: Clients/Alice, Clients/Bob
+	if got[0] != "Clients/Alice" || got[1] != "Clients/Bob" {
+		t.Fatalf("unexpected backlinks %v", got)
+	}
+}
