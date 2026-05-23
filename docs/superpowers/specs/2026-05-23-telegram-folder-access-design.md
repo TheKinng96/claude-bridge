@@ -96,8 +96,8 @@ Key points:
 - **`reply` is the terminator.** No new sentinel needed — the existing `reply` action
   ends the loop. The system prompt instructs the model to finish with `reply` once the
   task is complete.
-- **Step cap = 4.** Covers read → act → finish (3 model calls) with headroom. Each
-  sonnet call is several seconds; worst case ~20-30s. Acceptable; typing indicator
+- **Step cap = 5.** Covers e.g. list → read → act → finish with headroom. Each
+  sonnet call is several seconds; worst case ~30-40s. Acceptable; typing indicator
   already refreshes during the wait. Documented as a known latency cost.
 - **Safety preserved.** Existing rule — destructive or large-scale (>20 recipients)
   actions require the model to `reply` and ask for confirmation rather than execute —
