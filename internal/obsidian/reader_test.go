@@ -4,6 +4,7 @@ package obsidian
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,52 @@ func TestBacklinks(t *testing.T) {
 	// sorted: Clients/Alice, Clients/Bob
 	if got[0] != "Clients/Alice" || got[1] != "Clients/Bob" {
 		t.Fatalf("unexpected backlinks %v", got)
+	}
+
+	// A path-qualified query ("Folder/Tan Policy") must still find the short-form
+	// "[[Tan Policy]]" links via a stem-vs-stem comparison.
+	gotQualified, err := r.Backlinks("Some/Folder/Tan Policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotQualified) != 2 || gotQualified[0] != "Clients/Alice" || gotQualified[1] != "Clients/Bob" {
+		t.Fatalf("path-qualified query should still find short-form backlinks, got %v", gotQualified)
+	}
+}
+
+func TestReadNoteSymlinkEscapeRejected(t *testing.T) {
+	vault := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("TOP SECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(vault, "leak.md")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	r := NewReader(vault)
+	n, err := r.ReadNote("leak")
+	if err == nil {
+		t.Fatalf("expected symlink escape to be rejected, got note %+v", n)
+	}
+	if n != nil && strings.Contains(n.Body, "TOP SECRET") {
+		t.Fatal("symlink escape leaked outside content")
+	}
+}
+
+func TestSearchTagIgnoresFrontmatterComment(t *testing.T) {
+	vault := t.TempDir()
+	// "# foo" is a YAML comment in the frontmatter, not a body #tag.
+	writeNote(t, vault, "A.md", "---\n# foo\nrole: client\n---\nbody text\n")
+	writeNote(t, vault, "B.md", "real body #foo\n")
+	r := NewReader(vault)
+	hits, err := r.Search("", "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Note != "B" {
+		t.Fatalf("frontmatter comment must not match a tag search, got %+v", hits)
 	}
 }
 
