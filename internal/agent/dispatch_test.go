@@ -64,6 +64,12 @@ type fakeExec struct {
 	coworkEditResult   *CoworkFile
 	coworkPathResult   string
 	coworkErr          error
+
+	kbEntries []KBEntry
+	kbContent string
+	note      *NoteView
+	backlinks []string
+	noteHits  []NoteHit
 }
 
 type coworkSearchCall struct {
@@ -198,6 +204,22 @@ func (f *fakeExec) CoworkPath(ctx context.Context, date string) (string, error) 
 	defer f.mu.Unlock()
 	f.coworkPathCalls = append(f.coworkPathCalls, date)
 	return f.coworkPathResult, f.coworkErr
+}
+
+func (f *fakeExec) ListKB(ctx context.Context, subdir string) ([]KBEntry, error) {
+	return f.kbEntries, nil
+}
+func (f *fakeExec) ReadKB(ctx context.Context, path string) (string, *KBEntry, error) {
+	return f.kbContent, &KBEntry{Name: path, IsText: true}, nil
+}
+func (f *fakeExec) ReadNote(ctx context.Context, name string) (*NoteView, error) {
+	return f.note, nil
+}
+func (f *fakeExec) Backlinks(ctx context.Context, name string) ([]string, error) {
+	return f.backlinks, nil
+}
+func (f *fakeExec) SearchNotes(ctx context.Context, query, tag string) ([]NoteHit, error) {
+	return f.noteHits, nil
 }
 
 type updateProfileCall struct{ JID, Field, Value string }
@@ -593,5 +615,41 @@ func TestRun_CoworkPath(t *testing.T) {
 	}
 	if len(ex.coworkPathCalls) != 1 || ex.coworkPathCalls[0] != "today" {
 		t.Errorf("expected one path call with date=today, got %v", ex.coworkPathCalls)
+	}
+}
+
+func TestDispatchListKB(t *testing.T) {
+	reply := `{"action":"list_kb","params":{"subdir":""},"user_reply":"Listing your KB folder."}`
+	d, _, ex, _ := newTestDispatcher(reply)
+	ex.kbEntries = []KBEntry{{Name: "report.md", IsText: true}, {Name: "imgs", IsDir: true}}
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "list my kb"})
+	if res.Action != ActionListKB {
+		t.Fatalf("want list_kb, got %s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "report.md") {
+		t.Fatalf("reply should list files, got %q", res.UserReply)
+	}
+}
+
+func TestDispatchReadKB(t *testing.T) {
+	reply := `{"action":"read_kb","params":{"path":"report.md"},"user_reply":"Here it is:"}`
+	d, _, ex, _ := newTestDispatcher(reply)
+	ex.kbContent = "Q1 revenue up 12%."
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "read report.md"})
+	if res.Action != ActionReadKB {
+		t.Fatalf("want read_kb, got %s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "Q1 revenue") {
+		t.Fatalf("reply should contain file content, got %q", res.UserReply)
+	}
+}
+
+func TestDispatchReadNote(t *testing.T) {
+	reply := `{"action":"read_note","params":{"name":"Alice"},"user_reply":"Note:"}`
+	d, _, ex, _ := newTestDispatcher(reply)
+	ex.note = &NoteView{Name: "Alice", Body: "VIP client", OutLinks: []string{"Tan Policy"}, Tags: []string{"vip"}}
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "open Alice"})
+	if res.Action != ActionReadNote || !strings.Contains(res.UserReply, "VIP client") {
+		t.Fatalf("unexpected result %s / %q", res.Action, res.UserReply)
 	}
 }
