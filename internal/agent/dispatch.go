@@ -260,7 +260,17 @@ const (
 	memoryTurns  = 5
 )
 
-// Run executes one dispatch turn. Returns the reply to send back to the owner.
+const (
+	maxDispatchSteps = 5    // bound on chained actions per owner message
+	observationLimit = 6000 // chars of an action result fed back into the prompt
+)
+
+// Run executes one owner message. By default it resolves and runs a single
+// action (one-shot, result appended to the reply). When the model sets
+// "continue": true on an action, Run feeds that action's result back and asks
+// for the next action, looping up to maxDispatchSteps or until the model emits
+// "reply". Only the final message is sent to the owner; chained turns get a
+// compact action trail appended for transparency.
 func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 	start := time.Now()
 	res := DispatchResult{Action: ActionReply}
@@ -273,45 +283,79 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 	}
 
 	recent := d.recentTurns(ctx, in)
-	user := buildDispatchUserPrompt(in, recent)
+	transcript := buildDispatchUserPrompt(in, recent)
+	var trail []string
 
-	raw, err := d.Claude.Reply(ctx, dispatchSystemPrompt, user)
-	if err != nil {
-		res.Error = err.Error()
-		res.UserReply = "Sorry — dispatch failed: " + truncate(err.Error(), 200)
-		d.logAsync(ctx, in, res, time.Since(start))
-		return res
-	}
-
-	parsed, err := parseDispatch(raw)
-	if err != nil {
-		// Fallback: treat the entire raw output as a reply. Better to surface
-		// Claude's text than to fail loudly when the JSON is slightly off.
-		res.Action = ActionReply
-		res.UserReply = strings.TrimSpace(raw)
-		if res.UserReply == "" {
-			res.UserReply = "I'm not sure what to do with that."
+	for step := 0; step < maxDispatchSteps; step++ {
+		raw, err := d.Claude.Reply(ctx, dispatchSystemPrompt, transcript)
+		if err != nil {
+			res.Error = err.Error()
+			res.UserReply = "Sorry — dispatch failed: " + truncate(err.Error(), 200)
+			d.logAsync(ctx, in, res, time.Since(start))
+			return res
 		}
-		d.logAsync(ctx, in, res, time.Since(start))
-		return res
+
+		parsed, perr := parseDispatch(raw)
+		if perr != nil {
+			// Tolerant fallback: surface raw text as the reply.
+			res.Action = ActionReply
+			res.UserReply = strings.TrimSpace(raw)
+			if res.UserReply == "" {
+				res.UserReply = "I'm not sure what to do with that."
+			}
+			break
+		}
+
+		// reply ends the loop with the model's message.
+		if parsed.Action == ActionReply {
+			res.Action = ActionReply
+			res.UserReply = parsed.UserReply
+			res.Error = ""
+			break
+		}
+
+		if d.Exec == nil {
+			res.Action = parsed.Action
+			res.UserReply = parsed.UserReply + " (executor offline — action skipped)"
+			res.Error = "no executor configured"
+			d.logAsync(ctx, in, res, time.Since(start))
+			return res
+		}
+
+		status, exErr := d.execute(ctx, parsed)
+		trail = append(trail, string(parsed.Action))
+		res.Action = parsed.Action
+
+		// Chain only when the model asked to continue AND a step remains.
+		// Otherwise behave one-shot: append this action's result and stop.
+		if !parsed.Continue || step == maxDispatchSteps-1 {
+			if exErr != nil {
+				res.Error = exErr.Error()
+				res.UserReply = parsed.UserReply + " (failed: " + truncate(exErr.Error(), 100) + ")"
+			} else if status != "" {
+				res.UserReply = strings.TrimSpace(parsed.UserReply + " " + status)
+			} else {
+				res.UserReply = parsed.UserReply
+			}
+			break
+		}
+
+		// Continue: feed the result back for the next step.
+		obs := status
+		if exErr != nil {
+			obs = "ERROR: " + exErr.Error()
+		} else if obs == "" {
+			obs = "(done)"
+		}
+		transcript += fmt.Sprintf(
+			"\n\n[You ran action: %s]\n[Result]: %s\n\nContinue with the next action, or respond with action \"reply\" and a short message once the owner's request is fully handled.",
+			parsed.Action, truncate(obs, observationLimit),
+		)
 	}
 
-	res.Action = parsed.Action
-	res.UserReply = parsed.UserReply
-
-	if d.Exec == nil {
-		res.Error = "no executor configured"
-		res.UserReply = parsed.UserReply + " (executor offline — action skipped)"
-		d.logAsync(ctx, in, res, time.Since(start))
-		return res
-	}
-
-	status, err := d.execute(ctx, parsed)
-	if err != nil {
-		res.Error = err.Error()
-		res.UserReply = parsed.UserReply + " (failed: " + truncate(err.Error(), 100) + ")"
-	} else if status != "" {
-		res.UserReply = strings.TrimSpace(parsed.UserReply + " " + status)
+	// Append a compact action trail only when the turn chained 2+ actions.
+	if len(trail) > 1 {
+		res.UserReply = strings.TrimSpace(res.UserReply) + "\n· " + strings.Join(trail, " → ")
 	}
 
 	d.logAsync(ctx, in, res, time.Since(start))

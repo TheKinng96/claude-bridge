@@ -723,3 +723,81 @@ func TestFakeClaudeSequence(t *testing.T) {
 		t.Fatalf("call 3 = %q, want b (repeat last)", got)
 	}
 }
+
+func TestRunChainsReadThenSend(t *testing.T) {
+	// Step 1: read_kb with continue:true. Step 2: send_whatsapp (terminal).
+	d, c, ex, _ := newTestDispatcherSeq(
+		`{"action":"read_kb","params":{"path":"report.md"},"user_reply":"reading","continue":true}`,
+		`{"action":"send_whatsapp","params":{"phone":"60123","message":"Q1 is up"},"user_reply":"Messaged Alice."}`,
+	)
+	ex.kbContent = "Q1 revenue up 12%."
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "read report.md and tell 60123"})
+
+	// The read_kb result must have been fed back into the prompt for step 2.
+	if !strings.Contains(c.lastU, "Q1 revenue up 12%") {
+		t.Fatalf("read result not fed back into prompt; lastU=%q", c.lastU)
+	}
+	// The send actually happened.
+	if len(ex.sendCalls) != 1 {
+		t.Fatalf("want 1 send, got %d", len(ex.sendCalls))
+	}
+	// Final reply is the last action's message, with the action trail appended.
+	if !strings.Contains(res.UserReply, "Messaged Alice") {
+		t.Fatalf("unexpected final reply %q", res.UserReply)
+	}
+	if !strings.Contains(res.UserReply, "read_kb → send_whatsapp") {
+		t.Fatalf("expected action trail in reply, got %q", res.UserReply)
+	}
+	// Two Claude calls (one per step).
+	if c.calls != 2 {
+		t.Fatalf("want 2 Claude calls, got %d", c.calls)
+	}
+}
+
+func TestRunReplyTerminatesImmediately(t *testing.T) {
+	d, c, _, _ := newTestDispatcherSeq(`{"action":"reply","params":{},"user_reply":"Hey!"}`)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "hi"})
+	if res.Action != ActionReply || res.UserReply != "Hey!" {
+		t.Fatalf("unexpected %s / %q", res.Action, res.UserReply)
+	}
+	if strings.Contains(res.UserReply, "→") {
+		t.Fatalf("single reply should have no trail: %q", res.UserReply)
+	}
+	if c.calls != 1 {
+		t.Fatalf("want 1 call, got %d", c.calls)
+	}
+}
+
+func TestRunSingleActionOneShotUnchanged(t *testing.T) {
+	// No continue flag → behaves one-shot: status appended, no trail, one call.
+	d, c, ex, _ := newTestDispatcher(`{"action":"read_kb","params":{"path":"x.md"},"user_reply":"Here:"}`)
+	ex.kbContent = "hello world"
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "read x.md"})
+	if res.Action != ActionReadKB {
+		t.Fatalf("want read_kb, got %s", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "hello world") {
+		t.Fatalf("one-shot read should append content, got %q", res.UserReply)
+	}
+	if strings.Contains(res.UserReply, "→") {
+		t.Fatalf("single action should have no trail: %q", res.UserReply)
+	}
+	if c.calls != 1 {
+		t.Fatalf("want 1 call, got %d", c.calls)
+	}
+}
+
+func TestRunStepCapStops(t *testing.T) {
+	// Model always asks to continue with a read; loop must stop at maxDispatchSteps.
+	d, c, ex, _ := newTestDispatcherSeq(
+		`{"action":"read_kb","params":{"path":"a.md"},"user_reply":"...","continue":true}`,
+	)
+	ex.kbContent = "x"
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "loop"})
+	if c.calls != maxDispatchSteps {
+		t.Fatalf("want %d calls (step cap), got %d", maxDispatchSteps, c.calls)
+	}
+	if res.UserReply == "" {
+		t.Fatal("expected a non-empty final reply at the cap")
+	}
+}
