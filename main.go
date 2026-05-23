@@ -25,6 +25,7 @@ import (
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/cowork"
+	"claude-bridge/internal/folderread"
 	"claude-bridge/internal/obsidian"
 	"claude-bridge/internal/profile"
 	"claude-bridge/internal/server"
@@ -419,6 +420,90 @@ func (e *dispatchExecutor) EditCowork(ctx context.Context, filename, op, content
 	}, nil
 }
 
+// kbRoot builds a folderread.Root from the current knowledge config so
+// dashboard folder changes take effect without a restart.
+func (e *dispatchExecutor) kbRoot(ctx context.Context) *folderread.Root {
+	cfg, _ := knowledge.LoadConfig(ctx, e.store)
+	return folderread.New(cfg.FolderPath)
+}
+
+// vaultReader builds an obsidian.Reader from the current agent config.
+func (e *dispatchExecutor) vaultReader(ctx context.Context) *obsidian.Reader {
+	cfg, _ := agent.LoadConfig(ctx, e.store)
+	return obsidian.NewReader(cfg.ObsidianVaultPath)
+}
+
+func (e *dispatchExecutor) ListKB(ctx context.Context, subdir string) ([]agent.KBEntry, error) {
+	r := e.kbRoot(ctx)
+	if !r.Enabled() {
+		return nil, fmt.Errorf("set a knowledge base folder on the Dashboard first")
+	}
+	rows, err := r.List(subdir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.KBEntry, 0, len(rows))
+	for _, x := range rows {
+		out = append(out, agent.KBEntry{Name: x.Name, RelPath: x.RelPath, Size: x.Size, IsDir: x.IsDir, IsText: x.IsText})
+	}
+	return out, nil
+}
+
+func (e *dispatchExecutor) ReadKB(ctx context.Context, path string) (string, *agent.KBEntry, error) {
+	r := e.kbRoot(ctx)
+	if !r.Enabled() {
+		return "", nil, fmt.Errorf("set a knowledge base folder on the Dashboard first")
+	}
+	text, ent, err := r.Read(path)
+	if err != nil {
+		return "", nil, err
+	}
+	var ve *agent.KBEntry
+	if ent != nil {
+		ve = &agent.KBEntry{Name: ent.Name, RelPath: ent.RelPath, Size: ent.Size, IsText: ent.IsText}
+	}
+	return text, ve, nil
+}
+
+func (e *dispatchExecutor) ReadNote(ctx context.Context, name string) (*agent.NoteView, error) {
+	rd := e.vaultReader(ctx)
+	if !rd.Enabled() {
+		return nil, fmt.Errorf("set an Obsidian vault path on the Dashboard first")
+	}
+	n, err := rd.ReadNote(name)
+	if err != nil {
+		return nil, err
+	}
+	return &agent.NoteView{
+		Name: n.Name, RelPath: n.RelPath, Frontmatter: n.Frontmatter,
+		Body: n.Body, OutLinks: n.OutLinks, Tags: n.Tags,
+	}, nil
+}
+
+func (e *dispatchExecutor) Backlinks(ctx context.Context, name string) ([]string, error) {
+	rd := e.vaultReader(ctx)
+	if !rd.Enabled() {
+		return nil, fmt.Errorf("set an Obsidian vault path on the Dashboard first")
+	}
+	return rd.Backlinks(name)
+}
+
+func (e *dispatchExecutor) SearchNotes(ctx context.Context, query, tag string) ([]agent.NoteHit, error) {
+	rd := e.vaultReader(ctx)
+	if !rd.Enabled() {
+		return nil, fmt.Errorf("set an Obsidian vault path on the Dashboard first")
+	}
+	hits, err := rd.Search(query, tag)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.NoteHit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, agent.NoteHit{Note: h.Note, Line: h.Line, Snippet: h.Snippet})
+	}
+	return out, nil
+}
+
 // bootTelegram constructs and starts a Telegram client from saved agent
 // config. Returns nil if no token is configured. The handler routes inbound
 // owner messages through the dispatcher.
@@ -588,8 +673,11 @@ func main() {
 	dispatchCfg, _ := agent.LoadConfig(context.Background(), appStore)
 	obsidianWriter := obsidian.New(dispatchCfg.ObsidianVaultPath)
 	coworkRoot := cowork.New(dispatchCfg.ObsidianVaultPath)
+	// Dispatcher runs on sonnet for better action selection + replies. The
+	// shared knowClient stays on haiku for bulk classification/auto-reply.
+	dispatchClient := claude.New("", "claude-sonnet-4-6")
 	dispatcher := agent.NewDispatcher(
-		knowClient,
+		dispatchClient,
 		&dispatchExecutor{
 			wa:        wa,
 			bq:        srv.BatchQueue(),
