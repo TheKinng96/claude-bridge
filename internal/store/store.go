@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1911,7 +1912,10 @@ func (s *Store) ResolveSession(ctx context.Context, channel, ownerID string, gap
 		if e != nil {
 			return DispatchSessionRow{}, e
 		}
-		id, _ := res.LastInsertId()
+		id, err := res.LastInsertId()
+		if err != nil {
+			return DispatchSessionRow{}, err
+		}
 		return DispatchSessionRow{ID: id, Channel: channel, OwnerID: ownerID}, nil
 	}
 	if err != nil {
@@ -2006,7 +2010,11 @@ func (s *Store) SearchSessionSummaries(ctx context.Context, channel, ownerID, qu
 		if err := rows.Scan(&sid, &h.Summary, &h.StartedAt); err != nil {
 			return nil, err
 		}
-		fmt.Sscan(sid, &h.SessionID)
+		id, err := strconv.ParseInt(sid, 10, 64)
+		if err != nil {
+			continue // skip malformed FTS row rather than emit SessionID 0
+		}
+		h.SessionID = id
 		out = append(out, h)
 	}
 	return out, rows.Err()
