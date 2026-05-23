@@ -737,6 +737,9 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		if err := json.Unmarshal(p.Params, &args); err != nil {
 			return "", fmt.Errorf("read_note params: %w", err)
 		}
+		if strings.TrimSpace(args.Name) == "" {
+			return "", errors.New("read_note: name required")
+		}
 		note, err := d.Exec.ReadNote(ctx, args.Name)
 		if err != nil {
 			return "", err
@@ -761,6 +764,9 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		if err := json.Unmarshal(p.Params, &args); err != nil {
 			return "", fmt.Errorf("backlinks params: %w", err)
 		}
+		if strings.TrimSpace(args.Name) == "" {
+			return "", errors.New("backlinks: name required")
+		}
 		links, err := d.Exec.Backlinks(ctx, args.Name)
 		if err != nil {
 			return "", err
@@ -778,6 +784,9 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		if err := json.Unmarshal(p.Params, &args); err != nil {
 			return "", fmt.Errorf("search_notes params: %w", err)
 		}
+		if strings.TrimSpace(args.Query) == "" && strings.TrimSpace(args.Tag) == "" {
+			return "", errors.New("search_notes: query or tag required")
+		}
 		hits, err := d.Exec.SearchNotes(ctx, args.Query, args.Tag)
 		if err != nil {
 			return "", err
@@ -788,6 +797,7 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 		var sb strings.Builder
 		for i, h := range hits {
 			if i >= 15 {
+				fmt.Fprintf(&sb, "\n…(+%d more)", len(hits)-15)
 				break
 			}
 			fmt.Fprintf(&sb, "\n• %s: %s", h.Note, h.Snippet)
