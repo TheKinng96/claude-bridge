@@ -694,7 +694,7 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 			return "", err
 		}
 		if len(entries) == 0 {
-			return "(folder empty or not configured)", nil
+			return "(folder is empty)", nil
 		}
 		var sb strings.Builder
 		for i, e := range entries {

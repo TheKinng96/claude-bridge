@@ -653,3 +653,23 @@ func TestDispatchReadNote(t *testing.T) {
 		t.Fatalf("unexpected result %s / %q", res.Action, res.UserReply)
 	}
 }
+
+func TestDispatchBacklinks(t *testing.T) {
+	reply := `{"action":"backlinks","params":{"name":"Tan Policy"},"user_reply":"Backlinks:"}`
+	d, _, ex, _ := newTestDispatcher(reply)
+	ex.backlinks = []string{"Clients/Alice", "Clients/Bob"}
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "who links to Tan Policy"})
+	if res.Action != ActionBacklinks || !strings.Contains(res.UserReply, "Clients/Alice") {
+		t.Fatalf("unexpected result %s / %q", res.Action, res.UserReply)
+	}
+}
+
+func TestDispatchSearchNotes(t *testing.T) {
+	reply := `{"action":"search_notes","params":{"query":"renewal"},"user_reply":"Found:"}`
+	d, _, ex, _ := newTestDispatcher(reply)
+	ex.noteHits = []NoteHit{{Note: "Clients/Alice", Line: 3, Snippet: "renewal due in March"}}
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "search renewal"})
+	if res.Action != ActionSearchNotes || !strings.Contains(res.UserReply, "renewal due in March") {
+		t.Fatalf("unexpected result %s / %q", res.Action, res.UserReply)
+	}
+}

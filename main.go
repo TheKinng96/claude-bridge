@@ -22,10 +22,10 @@ import (
 	"claude-bridge/internal/connectors/facebook"
 	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
-	"claude-bridge/internal/knowledge"
-	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/cowork"
 	"claude-bridge/internal/folderread"
+	"claude-bridge/internal/knowledge"
+	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/obsidian"
 	"claude-bridge/internal/profile"
 	"claude-bridge/internal/server"
@@ -615,7 +615,7 @@ func main() {
 
 	// Browser engine for all browser-based connectors (Facebook, Instagram, etc).
 	browserEngine := browser.NewEngine(filepath.Join(dd, "browser"), true) // headless by default
-	browserEngine.EnsureBrowser() // start checking/downloading Chrome in background
+	browserEngine.EnsureBrowser()                                          // start checking/downloading Chrome in background
 	fb := facebook.New(browserEngine, appStore)
 
 	// Boot reconnects previously connected WhatsApp accounts.
