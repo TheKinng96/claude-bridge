@@ -49,10 +49,22 @@ var ErrDisabled = errors.New("folderread: no folder configured")
 func (r *Root) Enabled() bool { return r != nil && r.Path != "" }
 
 // resolve joins rel onto Root.Path and guarantees the result cannot escape the
-// root (rejects "..", absolute paths). Returns the cleaned absolute path.
+// root. It rejects absolute paths and any ".." component up front (rather than
+// silently remapping them), then applies a lexical prefix check and a
+// symlink-resolved prefix check as defense-in-depth. Returns the resolved path.
 func (r *Root) resolve(rel string) (string, error) {
-	// Leading "/" + Clean neutralizes any ".." escape attempts.
-	clean := filepath.Clean("/" + strings.TrimSpace(filepath.ToSlash(rel)))
+	slash := strings.TrimSpace(filepath.ToSlash(rel))
+	// Reject absolute paths outright — they would escape the root.
+	if filepath.IsAbs(rel) || strings.HasPrefix(slash, "/") {
+		return "", fmt.Errorf("folderread: absolute path not allowed: %q", rel)
+	}
+	// Reject any ".." component instead of letting Clean remap it into root.
+	for _, part := range strings.Split(slash, "/") {
+		if part == ".." {
+			return "", fmt.Errorf("folderread: path %q escapes root", rel)
+		}
+	}
+	clean := filepath.Clean("/" + slash)
 	full := filepath.Join(r.Path, filepath.FromSlash(clean))
 	root, err := filepath.Abs(r.Path)
 	if err != nil {
@@ -65,7 +77,25 @@ func (r *Root) resolve(rel string) (string, error) {
 	if fp != root && !strings.HasPrefix(fp, root+string(os.PathSeparator)) {
 		return "", fmt.Errorf("folderread: path %q escapes root", rel)
 	}
-	return fp, nil
+	// filepath.Abs is lexical and does not follow symlinks; a symlink inside the
+	// root pointing outside it would otherwise be followed by Stat/ReadFile.
+	// Resolve symlinks and re-check the prefix. Resolve the root too, since the
+	// root path itself may traverse symlinks (e.g. /var -> /private/var on macOS).
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(fp)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fp, nil // not-yet-existing path; lexical guard suffices, Stat/ReadFile will surface ErrNotExist
+		}
+		return "", err
+	}
+	if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("folderread: path %q escapes root via symlink", rel)
+	}
+	return real, nil
 }
 
 // List returns the entries in Root.Path/subdir, non-recursive. Dotfiles are
@@ -154,6 +184,8 @@ func (r *Root) Read(rel string) (string, *Entry, error) {
 		return "", e, err
 	}
 	if len(data) > MaxReadBytes {
+		// Byte-based truncation; may split a multi-byte UTF-8 sequence at the
+		// boundary (matches cowork behavior; not a regression).
 		return string(data[:MaxReadBytes]) + "\n…(truncated)", e, nil
 	}
 	return string(data), e, nil

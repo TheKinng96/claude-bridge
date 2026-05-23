@@ -118,7 +118,41 @@ func TestReadTraversalRejected(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "ok.txt", "x")
 	r := New(dir)
+	// resolve must ERROR on ".." components — not silently remap them into the
+	// root. This passes because resolve returns an error, not because the
+	// remapped target file happens to be absent.
 	if _, _, err := r.Read("../../../etc/passwd"); err == nil {
 		t.Fatal("expected traversal to be rejected")
+	}
+}
+
+func TestReadSymlinkEscapeRejected(t *testing.T) {
+	root := t.TempDir()
+	// Create a secret file OUTSIDE the root.
+	outside := t.TempDir()
+	writeFile(t, outside, "secret.txt", "TOP SECRET")
+	// Symlink the outside dir to a name inside the root.
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	r := New(root)
+	text, _, err := r.Read("link/secret.txt")
+	if err == nil {
+		t.Fatalf("expected symlink escape to be rejected, got content %q", text)
+	}
+}
+
+func TestReadDisabled(t *testing.T) {
+	r := New("")
+	text, e, err := r.Read("anything")
+	if text != "" {
+		t.Fatalf("want empty text, got %q", text)
+	}
+	if e != nil {
+		t.Fatalf("want nil entry, got %+v", e)
+	}
+	if err != ErrDisabled {
+		t.Fatalf("want ErrDisabled, got %v", err)
 	}
 }
