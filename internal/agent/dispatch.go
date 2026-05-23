@@ -323,6 +323,7 @@ type dispatchPayload struct {
 	Action    Action          `json:"action"`
 	Params    json.RawMessage `json:"params"`
 	UserReply string          `json:"user_reply"`
+	Continue  bool            `json:"continue"` // true → run this action, feed result back, expect a follow-up action
 }
 
 // parseDispatch extracts a dispatchPayload from raw Claude output. Tolerant of

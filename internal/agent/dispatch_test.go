@@ -10,16 +10,38 @@ import (
 )
 
 type fakeClaude struct {
-	reply string
-	err   error
-	lastS string
-	lastU string
+	reply   string   // single-reply mode (back-compat)
+	replies []string // sequence mode; one per Reply call, repeats last past the end
+	calls   int
+	err     error
+	lastS   string
+	lastU   string
 }
 
 func (f *fakeClaude) Reply(ctx context.Context, system, user string) (string, error) {
 	f.lastS = system
 	f.lastU = user
-	return f.reply, f.err
+	f.calls++
+	if f.err != nil {
+		return "", f.err
+	}
+	if len(f.replies) > 0 {
+		i := f.calls - 1
+		if i >= len(f.replies) {
+			i = len(f.replies) - 1
+		}
+		return f.replies[i], nil
+	}
+	return f.reply, nil
+}
+
+// newTestDispatcherSeq builds a dispatcher whose fake Claude returns the given
+// replies in order (repeating the last past the end). Use for multi-step tests.
+func newTestDispatcherSeq(replies ...string) (*Dispatcher, *fakeClaude, *fakeExec, *fakeStore) {
+	c := &fakeClaude{replies: replies}
+	ex := &fakeExec{}
+	st := &fakeStore{}
+	return NewDispatcher(c, ex, st), c, ex, st
 }
 
 type fakeExec struct {
@@ -671,5 +693,33 @@ func TestDispatchSearchNotes(t *testing.T) {
 	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "search renewal"})
 	if res.Action != ActionSearchNotes || !strings.Contains(res.UserReply, "renewal due in March") {
 		t.Fatalf("unexpected result %s / %q", res.Action, res.UserReply)
+	}
+}
+
+func TestParseDispatchContinueFlag(t *testing.T) {
+	p, err := parseDispatch(`{"action":"read_kb","params":{"path":"x.md"},"user_reply":"reading","continue":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Continue {
+		t.Fatal("expected Continue=true")
+	}
+	p2, _ := parseDispatch(`{"action":"reply","params":{},"user_reply":"hi"}`)
+	if p2.Continue {
+		t.Fatal("expected Continue=false when omitted")
+	}
+}
+
+func TestFakeClaudeSequence(t *testing.T) {
+	c := &fakeClaude{replies: []string{"a", "b"}}
+	if got, _ := c.Reply(context.Background(), "", ""); got != "a" {
+		t.Fatalf("call 1 = %q, want a", got)
+	}
+	if got, _ := c.Reply(context.Background(), "", ""); got != "b" {
+		t.Fatalf("call 2 = %q, want b", got)
+	}
+	// Past the end, repeats the last entry (avoids index panic).
+	if got, _ := c.Reply(context.Background(), "", ""); got != "b" {
+		t.Fatalf("call 3 = %q, want b (repeat last)", got)
 	}
 }
