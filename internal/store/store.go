@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -1884,13 +1885,175 @@ type DispatchLogEntry struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// SaveDispatchLog appends one dispatch turn to the audit log.
-func (s *Store) SaveDispatchLog(ctx context.Context, channel, ownerID, message, action, userReply, errText string, durationMS int64) error {
+// SaveDispatchLog appends one dispatch turn to the audit log, tagged with its session.
+func (s *Store) SaveDispatchLog(ctx context.Context, sessionID int64, channel, ownerID, message, action, userReply, errText string, durationMS int64) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO dispatch_log (channel, owner_id, message, action, user_reply, error_text, duration_ms)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		channel, ownerID, message, action, userReply, errText, durationMS)
+		`INSERT INTO dispatch_log (session_id, channel, owner_id, message, action, user_reply, error_text, duration_ms)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sessionID, channel, ownerID, message, action, userReply, errText, durationMS)
 	return err
+}
+
+// ResolveSession returns the active session for (channel, owner) when its
+// last_at is within gap; otherwise it starts a new session. On a continuing
+// session it bumps last_at to now (so idle detection reflects real activity).
+func (s *Store) ResolveSession(ctx context.Context, channel, ownerID string, gap time.Duration) (DispatchSessionRow, error) {
+	cutoff := time.Now().Add(-gap).UTC().Format("2006-01-02 15:04:05")
+	var r DispatchSessionRow
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, summary, summary_through_log_id FROM dispatch_sessions
+		 WHERE channel=? AND owner_id=? AND last_at >= ?
+		 ORDER BY last_at DESC LIMIT 1`,
+		channel, ownerID, cutoff).Scan(&r.ID, &r.Summary, &r.SummaryThroughLogID)
+	if errors.Is(err, sql.ErrNoRows) {
+		res, e := s.db.ExecContext(ctx,
+			`INSERT INTO dispatch_sessions (channel, owner_id) VALUES (?, ?)`, channel, ownerID)
+		if e != nil {
+			return DispatchSessionRow{}, e
+		}
+		id, _ := res.LastInsertId()
+		return DispatchSessionRow{ID: id, Channel: channel, OwnerID: ownerID}, nil
+	}
+	if err != nil {
+		return DispatchSessionRow{}, err
+	}
+	r.Channel, r.OwnerID = channel, ownerID
+	_, _ = s.db.ExecContext(ctx, `UPDATE dispatch_sessions SET last_at=CURRENT_TIMESTAMP WHERE id=?`, r.ID)
+	return r, nil
+}
+
+// SessionTail returns the session's turns with id > sinceLogID, oldest first.
+func (s *Store) SessionTail(ctx context.Context, sessionID, sinceLogID int64, limit int) ([]DispatchLogEntry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, channel, owner_id, message, action, user_reply, error_text, duration_ms, created_at
+		 FROM dispatch_log
+		 WHERE session_id = ? AND id > ?
+		 ORDER BY id ASC
+		 LIMIT ?`, sessionID, sinceLogID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DispatchLogEntry
+	for rows.Next() {
+		var e DispatchLogEntry
+		if err := rows.Scan(&e.ID, &e.Channel, &e.OwnerID, &e.Message, &e.Action, &e.UserReply, &e.ErrorText, &e.DurationMS, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// UpdateSessionSummary stores a refreshed rolling summary, advances the covered
+// log id, and refreshes the FTS row (delete + insert — no triggers).
+func (s *Store) UpdateSessionSummary(ctx context.Context, sessionID int64, summary string, throughLogID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var channel, ownerID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT channel, owner_id FROM dispatch_sessions WHERE id=?`, sessionID).Scan(&channel, &ownerID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE dispatch_sessions SET summary=?, summary_through_log_id=?, summary_at=CURRENT_TIMESTAMP WHERE id=?`,
+		summary, throughLogID, sessionID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM dispatch_sessions_fts WHERE session_id=?`, fmt.Sprint(sessionID)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO dispatch_sessions_fts (session_id, channel, owner_id, summary) VALUES (?,?,?,?)`,
+		fmt.Sprint(sessionID), channel, ownerID, summary); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// SearchSessionSummaries finds this owner's past sessions whose summary matches
+// query (FTS5), best match first. Returns nothing on an empty/garbage query.
+func (s *Store) SearchSessionSummaries(ctx context.Context, channel, ownerID, query string, limit int) ([]SessionSummaryHit, error) {
+	match := ftsQuery(query)
+	if match == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT f.session_id, f.summary, s.started_at
+		 FROM dispatch_sessions_fts f
+		 JOIN dispatch_sessions s ON s.id = CAST(f.session_id AS INTEGER)
+		 WHERE f.summary MATCH ? AND f.channel = ? AND f.owner_id = ?
+		 ORDER BY bm25(dispatch_sessions_fts) ASC
+		 LIMIT ?`, match, channel, ownerID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SessionSummaryHit
+	for rows.Next() {
+		var h SessionSummaryHit
+		var sid string
+		if err := rows.Scan(&sid, &h.Summary, &h.StartedAt); err != nil {
+			return nil, err
+		}
+		fmt.Sscan(sid, &h.SessionID)
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// IdleSessionsToCompact returns sessions idle for at least idleThreshold that
+// still have turns past their summary — i.e. safe to compact (owner offline).
+func (s *Store) IdleSessionsToCompact(ctx context.Context, idleThreshold time.Duration, limit int) ([]DispatchSessionRow, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	cutoff := time.Now().Add(-idleThreshold).UTC().Format("2006-01-02 15:04:05")
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, channel, owner_id, summary, summary_through_log_id
+		 FROM dispatch_sessions s
+		 WHERE s.last_at <= ?
+		   AND EXISTS (SELECT 1 FROM dispatch_log l WHERE l.session_id = s.id AND l.id > s.summary_through_log_id)
+		 ORDER BY s.last_at ASC
+		 LIMIT ?`, cutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DispatchSessionRow
+	for rows.Next() {
+		var r DispatchSessionRow
+		if err := rows.Scan(&r.ID, &r.Channel, &r.OwnerID, &r.Summary, &r.SummaryThroughLogID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ftsQuery turns free text into a safe FTS5 MATCH expression: alphanumeric
+// tokens, each double-quoted, OR-joined. Returns "" when nothing usable remains.
+func ftsQuery(q string) string {
+	fields := strings.FieldsFunc(strings.ToLower(q), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	})
+	var toks []string
+	for _, f := range fields {
+		if len(f) >= 2 {
+			toks = append(toks, `"`+f+`"`)
+		}
+	}
+	return strings.Join(toks, " OR ")
 }
 
 // RecentDispatchTurns returns dispatch turns for one owner+channel that
