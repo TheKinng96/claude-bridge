@@ -801,3 +801,12 @@ func TestRunStepCapStops(t *testing.T) {
 		t.Fatal("expected a non-empty final reply at the cap")
 	}
 }
+
+func TestSystemPromptDocumentsContinue(t *testing.T) {
+	if !strings.Contains(dispatchSystemPrompt, `"continue"`) {
+		t.Fatal("system prompt must document the continue flag")
+	}
+	if !strings.Contains(dispatchSystemPrompt, "read_kb") {
+		t.Fatal("system prompt should still list the actions")
+	}
+}

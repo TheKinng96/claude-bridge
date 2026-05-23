@@ -215,10 +215,18 @@ const dispatchSystemPrompt = `You are the owner's dispatch agent. The owner mess
 Respond with ONE JSON object only — no preamble, no markdown fences. Schema:
 
 {
-  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "reply",
+  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "reply",
   "params": { ... },
-  "user_reply": "Short status to send back to the owner (1-2 sentences)."
+  "user_reply": "Short status to send back to the owner (1-2 sentences).",
+  "continue": false
 }
+
+CHAINING: You run in a loop. Set "continue": true when you need this action's
+result before deciding the next step — for example read_kb a file, then
+send_whatsapp a contact about what it said. When continue is true the action
+runs, you are shown its result, and you must issue the next action (or "reply").
+Set continue to false (or omit it) for a single action whose result can go
+straight to the owner. Always finish a multi-step task with action "reply".
 
 Action params:
 
@@ -246,7 +254,7 @@ Action params:
 Rules:
 1. If the owner asks for something destructive or large-scale (>20 recipients), reply with action "reply" and ask for explicit confirmation. Do not dispatch directly.
 2. Never invent phone numbers or JIDs. If the owner says "send to Alice" without a number, return action "reply" asking which number.
-3. Keep user_reply short. The executor will append a status line ("Sent." / "3 results.") after your reply.
+3. Keep user_reply short. For a single action (continue false), the action's result is appended to your user_reply automatically. For a continue:true chain, intermediate user_reply text is NOT sent — only your final "reply" message reaches the owner.
 4. If unsure which action fits, default to "reply" with your best guess at help text.`
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
