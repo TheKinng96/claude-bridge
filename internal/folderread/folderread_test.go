@@ -4,6 +4,7 @@ package folderread
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +69,56 @@ func TestDisabled(t *testing.T) {
 	}
 	if _, err := r.List(""); err != ErrDisabled {
 		t.Fatalf("want ErrDisabled, got %v", err)
+	}
+}
+
+func TestReadText(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "sub/note.md", "line1\nline2")
+	r := New(dir)
+	text, e, err := r.Read("sub/note.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "line1\nline2" {
+		t.Fatalf("unexpected content %q", text)
+	}
+	if e == nil || !e.IsText || e.Name != "note.md" {
+		t.Fatalf("unexpected entry %+v", e)
+	}
+}
+
+func TestReadBinaryPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "pic.png", "\x89PNGblob")
+	r := New(dir)
+	text, e, err := r.Read("pic.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.IsText || !strings.Contains(text, "binary file") {
+		t.Fatalf("want binary placeholder, got %q (%+v)", text, e)
+	}
+}
+
+func TestReadTruncates(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "big.txt", strings.Repeat("a", MaxReadBytes+500))
+	r := New(dir)
+	text, _, err := r.Read("big.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(text, "…(truncated)") {
+		t.Fatal("expected truncation marker")
+	}
+}
+
+func TestReadTraversalRejected(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ok.txt", "x")
+	r := New(dir)
+	if _, _, err := r.Read("../../../etc/passwd"); err == nil {
+		t.Fatal("expected traversal to be rejected")
 	}
 }

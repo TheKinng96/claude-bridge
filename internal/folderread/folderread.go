@@ -120,3 +120,41 @@ func isTextExt(ext string) bool {
 	}
 	return false
 }
+
+// Read returns a file's content by path relative to Root.Path. Binary files
+// yield a placeholder; text files past MaxReadBytes are truncated. Path escapes
+// (via "..") are rejected by resolve.
+func (r *Root) Read(rel string) (string, *Entry, error) {
+	if !r.Enabled() {
+		return "", nil, ErrDisabled
+	}
+	full, err := r.resolve(rel)
+	if err != nil {
+		return "", nil, err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return "", nil, fmt.Errorf("folderread: %w", err)
+	}
+	if info.IsDir() {
+		return "", nil, fmt.Errorf("folderread: %q is a directory", rel)
+	}
+	e := &Entry{
+		Name:    info.Name(),
+		RelPath: filepath.ToSlash(rel),
+		Size:    info.Size(),
+		ModTime: info.ModTime(),
+		IsText:  isTextExt(filepath.Ext(info.Name())),
+	}
+	if !e.IsText {
+		return fmt.Sprintf("[binary file %s, %d bytes — not shown]", e.Name, e.Size), e, nil
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return "", e, err
+	}
+	if len(data) > MaxReadBytes {
+		return string(data[:MaxReadBytes]) + "\n…(truncated)", e, nil
+	}
+	return string(data), e, nil
+}
