@@ -182,6 +182,68 @@ func trimSnippet(s string) string {
 	return s
 }
 
+// Hit is one search match.
+type Hit struct {
+	Note    string // relative stem, e.g. "Clients/Alice"
+	Line    int    // 1-based; 0 when matched by tag only
+	Snippet string
+}
+
+// Search scans vault notes. With query set, returns the first matching line per
+// note (case-insensitive substring). With tag set, restricts to notes carrying
+// that #tag. At least one of query/tag is required. Capped at 20 hits.
+func (r *Reader) Search(query, tag string) ([]Hit, error) {
+	if !r.Enabled() {
+		return nil, ErrReaderDisabled
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	tag = strings.TrimPrefix(strings.TrimSpace(tag), "#")
+	if q == "" && tag == "" {
+		return nil, errors.New("obsidian: query or tag required")
+	}
+	const maxHits = 20
+	var hits []Hit
+	_ = filepath.WalkDir(r.VaultPath, func(p string, d os.DirEntry, e error) error {
+		if e != nil || d.IsDir() || !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		text := string(data)
+		if tag != "" {
+			ok := false
+			for _, tg := range extractTags(text) {
+				if strings.EqualFold(tg, tag) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return nil
+			}
+		}
+		rel, _ := filepath.Rel(r.VaultPath, p)
+		note := strings.TrimSuffix(filepath.ToSlash(rel), ".md")
+		if q == "" {
+			hits = append(hits, Hit{Note: note, Line: 0, Snippet: trimSnippet(text)})
+		} else {
+			for i, ln := range strings.Split(text, "\n") {
+				if strings.Contains(strings.ToLower(ln), q) {
+					hits = append(hits, Hit{Note: note, Line: i + 1, Snippet: trimSnippet(ln)})
+					break
+				}
+			}
+		}
+		if len(hits) >= maxHits {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return hits, nil
+}
+
 // Backlinks returns vault notes (by relative stem, e.g. "Clients/Alice") that
 // contain a [[wikilink]] to name. On-demand scan — fine for a personal vault.
 func (r *Reader) Backlinks(name string) ([]string, error) {

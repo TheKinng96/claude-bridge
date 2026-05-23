@@ -84,3 +84,38 @@ func TestBacklinks(t *testing.T) {
 		t.Fatalf("unexpected backlinks %v", got)
 	}
 }
+
+func TestSearchText(t *testing.T) {
+	vault := t.TempDir()
+	writeNote(t, vault, "A.md", "renewal due in March\n")
+	writeNote(t, vault, "B.md", "nothing here\n")
+	r := NewReader(vault)
+	hits, err := r.Search("renewal", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Note != "A" {
+		t.Fatalf("unexpected hits %+v", hits)
+	}
+}
+
+func TestSearchTag(t *testing.T) {
+	vault := t.TempDir()
+	writeNote(t, vault, "A.md", "policy stuff #vip\n")
+	writeNote(t, vault, "B.md", "no tag\n")
+	r := NewReader(vault)
+	hits, err := r.Search("", "vip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Note != "A" {
+		t.Fatalf("unexpected hits %+v", hits)
+	}
+}
+
+func TestSearchRequiresInput(t *testing.T) {
+	r := NewReader(t.TempDir())
+	if _, err := r.Search("", ""); err == nil {
+		t.Fatal("expected error when query and tag both empty")
+	}
+}
