@@ -428,6 +428,21 @@ func (s *Store) migrate() error {
 		)`,
 
 		`CREATE INDEX IF NOT EXISTS idx_dispatch_log_created ON dispatch_log(created_at DESC)`,
+
+		`CREATE TABLE IF NOT EXISTS dispatch_sessions (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			channel     TEXT NOT NULL,
+			owner_id    TEXT NOT NULL,
+			started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			summary     TEXT NOT NULL DEFAULT '',
+			summary_through_log_id INTEGER NOT NULL DEFAULT 0,
+			summary_at  DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_dispatch_sessions_owner ON dispatch_sessions(channel, owner_id, last_at DESC)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS dispatch_sessions_fts USING fts5(
+			session_id UNINDEXED, channel UNINDEXED, owner_id UNINDEXED, summary
+		)`,
 	}
 
 	for _, m := range migrations {
@@ -445,6 +460,13 @@ func (s *Store) migrate() error {
 				return fmt.Errorf("migration failed: %w\nSQL: %s", err, m)
 			}
 		}
+	}
+
+	// dispatch_log predates sessions; add session_id if missing. SQLite has no
+	// "ADD COLUMN IF NOT EXISTS", so ignore the duplicate-column error on reboot.
+	if _, err := s.db.Exec(`ALTER TABLE dispatch_log ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add dispatch_log.session_id: %w", err)
 	}
 
 	return nil
@@ -1829,6 +1851,24 @@ func (s *Store) FindClientProfileByName(ctx context.Context, name string) (*Clie
 		p.ExtractedAt = &extractedAt.Time
 	}
 	return &p, nil
+}
+
+// DispatchSessionRow is one row of dispatch_sessions.
+type DispatchSessionRow struct {
+	ID                  int64
+	Channel             string
+	OwnerID             string
+	Summary             string
+	SummaryThroughLogID int64
+	StartedAt           time.Time
+	LastAt              time.Time
+}
+
+// SessionSummaryHit is a recall search match over session summaries.
+type SessionSummaryHit struct {
+	SessionID int64
+	Summary   string
+	StartedAt time.Time
 }
 
 // DispatchLogEntry is one row of the audit log.
