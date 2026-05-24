@@ -72,10 +72,10 @@ type fakeExec struct {
 	profileErr   error
 	contactsErr  error
 
-	broadcastID string
-	searchHits  []KBHit
-	pendings    []PendingSummary
-	inboxBucket []InboxSummary
+	broadcastID   string
+	searchHits    []KBHit
+	pendings      []PendingSummary
+	inboxBucket   []InboxSummary
 	profile       *ProfileInfo
 	contacts      []ContactSummary
 	contactsTotal int
@@ -247,22 +247,42 @@ func (f *fakeExec) SearchNotes(ctx context.Context, query, tag string) ([]NoteHi
 type updateProfileCall struct{ JID, Field, Value string }
 
 type fakeStore struct {
-	mu     sync.Mutex
-	got    []string
-	recent []DispatchTurn
+	mu  sync.Mutex
+	got []string
+
+	session         DispatchSession
+	tail            []DispatchTurn
+	recallHits      []SessionSummaryHit
+	resolvedChannel string
+	resolvedOwner   string
+	loggedSessionID int64
 }
 
-func (f *fakeStore) SaveDispatchLog(ctx context.Context, ch, oid, msg, act, reply, errText string, dur int64) error {
+func (f *fakeStore) SaveDispatchLog(ctx context.Context, sessionID int64, ch, oid, msg, act, reply, errText string, dur int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.loggedSessionID = sessionID
 	f.got = append(f.got, act+":"+reply)
 	return nil
 }
 
-func (f *fakeStore) RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]DispatchTurn, error) {
+func (f *fakeStore) ResolveSession(ctx context.Context, channel, ownerID string, gap time.Duration) (DispatchSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.recent, nil
+	f.resolvedChannel, f.resolvedOwner = channel, ownerID
+	return f.session, nil
+}
+
+func (f *fakeStore) SessionTail(ctx context.Context, sessionID, sinceLogID int64, limit int) ([]DispatchTurn, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tail, nil
+}
+
+func (f *fakeStore) SearchSessionSummaries(ctx context.Context, channel, ownerID, query string, limit int) ([]SessionSummaryHit, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.recallHits, nil
 }
 
 func newTestDispatcher(reply string) (*Dispatcher, *fakeClaude, *fakeExec, *fakeStore) {
@@ -808,5 +828,61 @@ func TestSystemPromptDocumentsContinue(t *testing.T) {
 	}
 	if !strings.Contains(dispatchSystemPrompt, "read_kb") {
 		t.Fatal("system prompt should still list the actions")
+	}
+}
+
+func TestRunResolvesSessionAndLogsIt(t *testing.T) {
+	d, _, _, st := newTestDispatcherSeq(`{"action":"reply","params":{},"user_reply":"hi"}`)
+	st.session = DispatchSession{ID: 42, Summary: "Earlier: discussed Tan policy.", SummaryThroughLogID: 7}
+	st.tail = []DispatchTurn{{Message: "what next?", UserReply: "Renew in March.", ID: 8}}
+	_ = d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "hello"})
+
+	st.mu.Lock()
+	rc, ro := st.resolvedChannel, st.resolvedOwner
+	st.mu.Unlock()
+	if rc != "telegram" || ro != "1" {
+		t.Fatalf("session not resolved for owner: %q/%q", rc, ro)
+	}
+	waitForLog(t, st, 1)
+	st.mu.Lock()
+	sid := st.loggedSessionID
+	st.mu.Unlock()
+	if sid != 42 {
+		t.Fatalf("log not tagged with session id, got %d", sid)
+	}
+}
+
+func TestBuildPromptIncludesSummaryAndTail(t *testing.T) {
+	sess := DispatchSession{Summary: "Rolling summary: client Tan wants renewal."}
+	tail := []DispatchTurn{{Message: "remind me", UserReply: "Renewal due March."}}
+	got := buildDispatchUserPrompt(DispatchInput{Channel: "telegram", OwnerID: "1", Message: "ok"}, sess, tail)
+	if !strings.Contains(got, "Rolling summary: client Tan wants renewal.") {
+		t.Fatalf("prompt missing summary: %q", got)
+	}
+	if !strings.Contains(got, "Renewal due March.") {
+		t.Fatalf("prompt missing tail: %q", got)
+	}
+}
+
+func TestRunRecallMemory(t *testing.T) {
+	d, c, _, st := newTestDispatcherSeq(
+		`{"action":"recall_memory","params":{"query":"tan policy"},"user_reply":"checking","continue":true}`,
+		`{"action":"reply","params":{},"user_reply":"We agreed to renew in March."}`,
+	)
+	st.recallHits = []SessionSummaryHit{{SessionID: 9, Summary: "Owner agreed to renew Tan policy in March."}}
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "what did we decide about tan?"})
+	if !strings.Contains(c.lastU, "renew Tan policy in March") {
+		t.Fatalf("recalled summary not fed back into prompt: %q", c.lastU)
+	}
+	if !strings.Contains(res.UserReply, "March") {
+		t.Fatalf("unexpected reply %q", res.UserReply)
+	}
+}
+
+func TestRecallMemoryRequiresQuery(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"recall_memory","params":{},"user_reply":"x"}`)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "recall"})
+	if !strings.Contains(strings.ToLower(res.UserReply), "query") {
+		t.Fatalf("expected a 'query required' style failure, got %q", res.UserReply)
 	}
 }

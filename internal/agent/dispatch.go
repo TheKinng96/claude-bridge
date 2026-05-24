@@ -34,6 +34,7 @@ const (
 	ActionReadNote       Action = "read_note"
 	ActionBacklinks      Action = "backlinks"
 	ActionSearchNotes    Action = "search_notes"
+	ActionRecallMemory   Action = "recall_memory"
 	ActionReply          Action = "reply"
 )
 
@@ -165,19 +166,36 @@ type Executor interface {
 	SearchNotes(ctx context.Context, query, tag string) ([]NoteHit, error)
 }
 
-// DispatchStore captures the audit-log + memory dependency. Real impl is
-// *store.Store. Action is passed as a plain string so the store package
-// doesn't need to import the agent package for the type.
+// DispatchStore captures the session + audit-log dependency. Real impl is
+// *store.Store via main.dispatchStoreAdapter.
 type DispatchStore interface {
-	SaveDispatchLog(ctx context.Context, channel, ownerID, message, action, userReply, errText string, durationMS int64) error
-	RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]DispatchTurn, error)
+	SaveDispatchLog(ctx context.Context, sessionID int64, channel, ownerID, message, action, userReply, errText string, durationMS int64) error
+	ResolveSession(ctx context.Context, channel, ownerID string, gap time.Duration) (DispatchSession, error)
+	SessionTail(ctx context.Context, sessionID, sinceLogID int64, limit int) ([]DispatchTurn, error)
+	SearchSessionSummaries(ctx context.Context, channel, ownerID, query string, limit int) ([]SessionSummaryHit, error)
 }
 
 // DispatchTurn is one prior exchange used to give Claude conversational memory.
 type DispatchTurn struct {
+	ID        int64
 	Message   string
 	UserReply string
 	CreatedAt time.Time
+}
+
+// DispatchSession is the active conversation session: its rolling summary and
+// the log id that summary already covers.
+type DispatchSession struct {
+	ID                  int64
+	Summary             string
+	SummaryThroughLogID int64
+}
+
+// SessionSummaryHit is a recall match over past session summaries.
+type SessionSummaryHit struct {
+	SessionID int64
+	Summary   string
+	StartedAt time.Time
 }
 
 // DispatchInput is one owner-originated request.
@@ -199,6 +217,8 @@ type Dispatcher struct {
 	Claude ClaudeRunner
 	Exec   Executor
 	Store  DispatchStore
+
+	curSession int64 // session id resolved for the in-flight turn (for logging)
 }
 
 // NewDispatcher builds a Dispatcher. Any field may be nil; nil Store skips the
@@ -215,7 +235,7 @@ const dispatchSystemPrompt = `You are the owner's dispatch agent. The owner mess
 Respond with ONE JSON object only — no preamble, no markdown fences. Schema:
 
 {
-  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "reply",
+  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "recall_memory" | "reply",
   "params": { ... },
   "user_reply": "Short status to send back to the owner (1-2 sentences).",
   "continue": false
@@ -249,6 +269,7 @@ Action params:
 - read_note: {"name": "Alice" | "Clients/Alice" | "[[Alice]]"} — read an Obsidian note: body plus its outgoing [[links]] and #tags.
 - backlinks: {"name": "Tan Policy"} — list notes that link TO the named note.
 - search_notes: {"query": "renewal", "tag": "vip"} — search Obsidian notes by text and/or #tag (at least one). Empty query with a tag lists all notes carrying that tag.
+- recall_memory: {"query": "tan policy renewal"} — search summaries of your PAST conversations with this owner for relevant context. Use this (usually with continue:true) when the owner refers to something discussed earlier that isn't in the recent turns above.
 - reply: {} — just chat, no side effect.
 
 Rules:
@@ -259,14 +280,13 @@ Rules:
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
 // sync with dispatchSystemPrompt schema.
-const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, cowork_path, list_kb, read_kb, read_note, backlinks, search_notes, reply`
+const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, cowork_path, list_kb, read_kb, read_note, backlinks, search_notes, recall_memory, reply`
 
-// memoryWindow is how far back to pull prior turns when building the prompt
-// for context. Keep small to limit prompt growth.
-const (
-	memoryWindow = 30 * time.Minute
-	memoryTurns  = 5
-)
+// sessionGap: messages this far apart or more start a new session.
+const sessionGap = time.Hour
+
+// sessionTailLimit caps raw turns pulled after the rolling summary.
+const sessionTailLimit = 12
 
 const (
 	maxDispatchSteps = 5    // bound on chained actions per owner message
@@ -290,8 +310,8 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		return res
 	}
 
-	recent := d.recentTurns(ctx, in)
-	transcript := buildDispatchUserPrompt(in, recent)
+	sess, tail := d.resolveMemory(ctx, in)
+	transcript := buildDispatchUserPrompt(in, sess, tail)
 	var trail []string
 
 	for step := 0; step < maxDispatchSteps; step++ {
@@ -330,7 +350,7 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 			return res
 		}
 
-		status, exErr := d.execute(ctx, parsed)
+		status, exErr := d.execute(ctx, in, parsed)
 		trail = append(trail, string(parsed.Action))
 		res.Action = parsed.Action
 
@@ -410,10 +430,40 @@ func parseDispatch(raw string) (*dispatchPayload, error) {
 
 // execute runs the resolved action and returns a status suffix appended to
 // user_reply. Returns (status, error). status is omitted when empty.
-func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, error) {
+func (d *Dispatcher) execute(ctx context.Context, in DispatchInput, p *dispatchPayload) (string, error) {
 	switch p.Action {
 	case ActionReply:
 		return "", nil
+
+	case ActionRecallMemory:
+		var args struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("recall_memory params: %w", err)
+		}
+		if strings.TrimSpace(args.Query) == "" {
+			return "", errors.New("recall_memory: query required")
+		}
+		if d.Store == nil {
+			return "(memory unavailable)", nil
+		}
+		hits, err := d.Store.SearchSessionSummaries(ctx, in.Channel, in.OwnerID, args.Query, 3)
+		if err != nil {
+			return "", err
+		}
+		if len(hits) == 0 {
+			return "(no matching past conversations)", nil
+		}
+		var sb strings.Builder
+		for _, h := range hits {
+			when := ""
+			if !h.StartedAt.IsZero() {
+				when = h.StartedAt.Format("2006-01-02") + ": "
+			}
+			fmt.Fprintf(&sb, "\n• %s%s", when, h.Summary)
+		}
+		return strings.TrimSpace(sb.String()), nil
 
 	case ActionSendWhatsApp:
 		var args struct {
@@ -862,36 +912,42 @@ func (d *Dispatcher) execute(ctx context.Context, p *dispatchPayload) (string, e
 	}
 }
 
-// recentTurns fetches conversational memory for this owner+channel. Returns
-// nil if memory is unavailable (no store, query error, etc) — memory is
-// best-effort, never fatal.
-func (d *Dispatcher) recentTurns(ctx context.Context, in DispatchInput) []DispatchTurn {
+// resolveMemory loads the active session and its uncompacted tail. On any store
+// error it degrades to an empty session (the turn still works, just without
+// memory). It records the resolved session id for logAsync.
+func (d *Dispatcher) resolveMemory(ctx context.Context, in DispatchInput) (DispatchSession, []DispatchTurn) {
+	d.curSession = 0
 	if d.Store == nil {
-		return nil
+		return DispatchSession{}, nil
 	}
-	turns, err := d.Store.RecentDispatchTurns(ctx, in.Channel, in.OwnerID, memoryWindow, memoryTurns)
+	sess, err := d.Store.ResolveSession(ctx, in.Channel, in.OwnerID, sessionGap)
 	if err != nil {
-		return nil
+		return DispatchSession{}, nil
 	}
-	return turns
+	d.curSession = sess.ID
+	tail, err := d.Store.SessionTail(ctx, sess.ID, sess.SummaryThroughLogID, sessionTailLimit)
+	if err != nil {
+		return sess, nil
+	}
+	return sess, tail
 }
 
-// buildDispatchUserPrompt assembles the user-side prompt: prior turns (oldest
-// first) then the current message.
-func buildDispatchUserPrompt(in DispatchInput, recent []DispatchTurn) string {
+// buildDispatchUserPrompt assembles the prompt: the session's rolling summary
+// (if any), then the uncompacted tail (oldest first), then the current message.
+func buildDispatchUserPrompt(in DispatchInput, sess DispatchSession, tail []DispatchTurn) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Owner channel: %s\nOwner ID: %s\nAvailable actions: %s\n\n", in.Channel, in.OwnerID, actionCatalog)
 
-	if len(recent) > 0 {
-		b.WriteString("Recent conversation (oldest first, for context — don't re-execute):\n")
-		// store returns newest-first; reverse for chronological display.
-		for i := len(recent) - 1; i >= 0; i-- {
-			t := recent[i]
+	if strings.TrimSpace(sess.Summary) != "" {
+		fmt.Fprintf(&b, "Summary of this conversation so far:\n%s\n\n", sess.Summary)
+	}
+	if len(tail) > 0 {
+		b.WriteString("Recent turns (oldest first, for context — don't re-execute):\n")
+		for _, t := range tail {
 			fmt.Fprintf(&b, "Owner: %s\nYou: %s\n", t.Message, t.UserReply)
 		}
 		b.WriteString("\n")
 	}
-
 	fmt.Fprintf(&b, "Owner message:\n%s", in.Message)
 	return b.String()
 }
@@ -907,7 +963,7 @@ func (d *Dispatcher) logAsync(ctx context.Context, in DispatchInput, res Dispatc
 		// we reach this goroutine after a network reply).
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = d.Store.SaveDispatchLog(bgCtx, in.Channel, in.OwnerID, in.Message, string(res.Action), res.UserReply, res.Error, dur.Milliseconds())
+		_ = d.Store.SaveDispatchLog(bgCtx, d.curSession, in.Channel, in.OwnerID, in.Message, string(res.Action), res.UserReply, res.Error, dur.Milliseconds())
 	}()
 }
 
