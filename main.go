@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof" // registers /debug/pprof/* on DefaultServeMux; only served when --pprof is set
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -656,11 +658,23 @@ func main() {
 	noTray := flag.Bool("no-tray", false, "Run without system tray (headless mode)")
 	dataDir := flag.String("data-dir", "", "Directory for session data (default: ~/.claude-bridge)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	pprofAddr := flag.String("pprof", "", "If set (e.g. localhost:6060), serve net/http/pprof for CPU/goroutine profiling")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version)
 		os.Exit(0)
+	}
+
+	// Optional profiling server (localhost only). Lets you capture a CPU profile
+	// or a full goroutine dump while the app misbehaves — see docs/DEBUGGING-CPU.md.
+	if *pprofAddr != "" {
+		go func() {
+			log.Printf("[pprof] profiling server on http://%s/debug/pprof/", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				log.Printf("[pprof] server stopped: %v", err)
+			}
+		}()
 	}
 
 	// Resolve data directory.
