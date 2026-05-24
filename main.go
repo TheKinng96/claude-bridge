@@ -463,10 +463,29 @@ func (e *dispatchExecutor) kbRoot(ctx context.Context) *folderread.Root {
 	return folderread.New(cfg.FolderPath)
 }
 
-// vaultReader builds an obsidian.Reader from the current agent config.
+// vaultReader builds an obsidian.Reader for the effective vault folder (the
+// agent's vault path, or the knowledge-base folder when that's empty).
 func (e *dispatchExecutor) vaultReader(ctx context.Context) *obsidian.Reader {
-	cfg, _ := agent.LoadConfig(ctx, e.store)
-	return obsidian.NewReader(cfg.ObsidianVaultPath)
+	return obsidian.NewReader(resolveVaultPath(ctx, e.store))
+}
+
+// resolveVaultPath returns the single folder used for Obsidian vault features.
+// It prefers the explicit agent vault path; when empty it reuses the
+// knowledge-base folder so the owner configures only one folder. The chosen
+// folder is created if missing. Returns "" only when neither is configured.
+func resolveVaultPath(ctx context.Context, st *store.Store) string {
+	acfg, _ := agent.LoadConfig(ctx, st)
+	path := strings.TrimSpace(acfg.ObsidianVaultPath)
+	if path == "" {
+		kcfg, _ := knowledge.LoadConfig(ctx, st)
+		path = strings.TrimSpace(kcfg.FolderPath)
+	}
+	if path != "" {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			log.Printf("vault: mkdir %s: %v", path, err)
+		}
+	}
+	return path
 }
 
 func (e *dispatchExecutor) ListKB(ctx context.Context, subdir string) ([]agent.KBEntry, error) {
@@ -504,7 +523,7 @@ func (e *dispatchExecutor) ReadKB(ctx context.Context, path string) (string, *ag
 func (e *dispatchExecutor) ReadNote(ctx context.Context, name string) (*agent.NoteView, error) {
 	rd := e.vaultReader(ctx)
 	if !rd.Enabled() {
-		return nil, fmt.Errorf("set an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Dashboard first")
 	}
 	n, err := rd.ReadNote(name)
 	if err != nil {
@@ -519,7 +538,7 @@ func (e *dispatchExecutor) ReadNote(ctx context.Context, name string) (*agent.No
 func (e *dispatchExecutor) Backlinks(ctx context.Context, name string) ([]string, error) {
 	rd := e.vaultReader(ctx)
 	if !rd.Enabled() {
-		return nil, fmt.Errorf("set an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Dashboard first")
 	}
 	return rd.Backlinks(name)
 }
@@ -527,7 +546,7 @@ func (e *dispatchExecutor) Backlinks(ctx context.Context, name string) ([]string
 func (e *dispatchExecutor) SearchNotes(ctx context.Context, query, tag string) ([]agent.NoteHit, error) {
 	rd := e.vaultReader(ctx)
 	if !rd.Enabled() {
-		return nil, fmt.Errorf("set an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Dashboard first")
 	}
 	hits, err := rd.Search(query, tag)
 	if err != nil {
@@ -706,9 +725,9 @@ func main() {
 	// (for any allowlisted user). Obsidian writer is constructed from saved
 	// config; an empty path makes it a silent no-op.
 	extractor := profile.NewExtractor(knowClient)
-	dispatchCfg, _ := agent.LoadConfig(context.Background(), appStore)
-	obsidianWriter := obsidian.New(dispatchCfg.ObsidianVaultPath)
-	coworkRoot := cowork.New(dispatchCfg.ObsidianVaultPath)
+	vaultPath := resolveVaultPath(context.Background(), appStore)
+	obsidianWriter := obsidian.New(vaultPath)
+	coworkRoot := cowork.New(vaultPath)
 	// Dispatcher runs on sonnet for better action selection + replies. The
 	// shared knowClient stays on haiku for bulk classification/auto-reply.
 	dispatchClient := claude.New("", "claude-sonnet-4-6")

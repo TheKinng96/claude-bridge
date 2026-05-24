@@ -122,10 +122,10 @@ const agentHTML = `<!DOCTYPE html>
 
 	<div class="card">
 		<h3>Obsidian Sync</h3>
-		<div class="help">Optional. When set, the server writes one markdown file per client into <code>&lt;vault&gt;/Clients/</code> with wikilinks to <code>&lt;vault&gt;/Topics/</code>. Open the vault in Obsidian to see the graph view. <strong>One-way</strong> — manual edits outside the "Custom Notes" section are overwritten on next profile update.</div>
+		<div class="help">Optional. When set, the server writes one markdown file per client into <code>&lt;vault&gt;/Clients/</code> with wikilinks to <code>&lt;vault&gt;/Topics/</code>. Open the vault in Obsidian to see the graph view. <strong>One-way</strong> — manual edits outside the "Custom Notes" section are overwritten on next profile update. <strong>Leave empty to reuse your Knowledge-base folder</strong> as the vault (one folder for both) — the agent can then read your notes (read_note / backlinks / search_notes) and write into that same folder.</div>
 		<div class="form-row">
 			<label for="obsidianVault">Vault path</label>
-			<input id="obsidianVault" placeholder="/Users/me/ObsidianVault" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
+			<input id="obsidianVault" placeholder="Leave empty to reuse your Knowledge folder" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;box-sizing:border-box">
 		</div>
 	</div>
 
