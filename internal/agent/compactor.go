@@ -25,6 +25,8 @@ type Compactor struct {
 	Interval      time.Duration // tick cadence; default 10m
 	IdleThreshold time.Duration // session idle at least this long → compact; default 15m
 	Logger        *log.Logger
+
+	cancel context.CancelFunc // set by Start; called by Stop
 }
 
 const (
@@ -41,6 +43,7 @@ func (c *Compactor) Start(ctx context.Context) {
 	if c.IdleThreshold <= 0 {
 		c.IdleThreshold = defaultCompactIdle
 	}
+	ctx, c.cancel = context.WithCancel(ctx)
 	go func() {
 		t := time.NewTicker(c.Interval)
 		defer t.Stop()
@@ -53,6 +56,13 @@ func (c *Compactor) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Stop halts the ticker goroutine. Safe to call once after Start.
+func (c *Compactor) Stop() {
+	if c.cancel != nil {
+		c.cancel()
+	}
 }
 
 // runOnce compacts every currently-idle session with uncompacted turns.

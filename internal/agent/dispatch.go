@@ -217,8 +217,6 @@ type Dispatcher struct {
 	Claude ClaudeRunner
 	Exec   Executor
 	Store  DispatchStore
-
-	curSession int64 // session id resolved for the in-flight turn (for logging)
 }
 
 // NewDispatcher builds a Dispatcher. Any field may be nil; nil Store skips the
@@ -269,7 +267,7 @@ Action params:
 - read_note: {"name": "Alice" | "Clients/Alice" | "[[Alice]]"} — read an Obsidian note: body plus its outgoing [[links]] and #tags.
 - backlinks: {"name": "Tan Policy"} — list notes that link TO the named note.
 - search_notes: {"query": "renewal", "tag": "vip"} — search Obsidian notes by text and/or #tag (at least one). Empty query with a tag lists all notes carrying that tag.
-- recall_memory: {"query": "tan policy renewal"} — search summaries of your PAST conversations with this owner for relevant context. Use this (usually with continue:true) when the owner refers to something discussed earlier that isn't in the recent turns above.
+- recall_memory: {"query": "tan policy renewal"} — search summaries of your PAST conversations with this owner for relevant context. Use when the owner refers to something discussed earlier that isn't in the recent turns above. ALWAYS set "continue": true on recall_memory so you can read the results and answer the owner in your own words with a follow-up "reply".
 - reply: {} — just chat, no side effect.
 
 Rules:
@@ -306,7 +304,7 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 	if d.Claude == nil {
 		res.Error = "dispatcher: no Claude runner configured"
 		res.UserReply = "Dispatch is offline."
-		d.logAsync(ctx, in, res, time.Since(start))
+		d.logAsync(ctx, in, res, time.Since(start), 0)
 		return res
 	}
 
@@ -319,7 +317,7 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		if err != nil {
 			res.Error = err.Error()
 			res.UserReply = "Sorry — dispatch failed: " + truncate(err.Error(), 200)
-			d.logAsync(ctx, in, res, time.Since(start))
+			d.logAsync(ctx, in, res, time.Since(start), sess.ID)
 			return res
 		}
 
@@ -346,7 +344,7 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 			res.Action = parsed.Action
 			res.UserReply = parsed.UserReply + " (executor offline — action skipped)"
 			res.Error = "no executor configured"
-			d.logAsync(ctx, in, res, time.Since(start))
+			d.logAsync(ctx, in, res, time.Since(start), sess.ID)
 			return res
 		}
 
@@ -386,7 +384,7 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		res.UserReply = strings.TrimSpace(res.UserReply) + "\n· " + strings.Join(trail, " → ")
 	}
 
-	d.logAsync(ctx, in, res, time.Since(start))
+	d.logAsync(ctx, in, res, time.Since(start), sess.ID)
 	return res
 }
 
@@ -914,9 +912,8 @@ func (d *Dispatcher) execute(ctx context.Context, in DispatchInput, p *dispatchP
 
 // resolveMemory loads the active session and its uncompacted tail. On any store
 // error it degrades to an empty session (the turn still works, just without
-// memory). It records the resolved session id for logAsync.
+// memory).
 func (d *Dispatcher) resolveMemory(ctx context.Context, in DispatchInput) (DispatchSession, []DispatchTurn) {
-	d.curSession = 0
 	if d.Store == nil {
 		return DispatchSession{}, nil
 	}
@@ -924,7 +921,6 @@ func (d *Dispatcher) resolveMemory(ctx context.Context, in DispatchInput) (Dispa
 	if err != nil {
 		return DispatchSession{}, nil
 	}
-	d.curSession = sess.ID
 	tail, err := d.Store.SessionTail(ctx, sess.ID, sess.SummaryThroughLogID, sessionTailLimit)
 	if err != nil {
 		return sess, nil
@@ -954,7 +950,7 @@ func buildDispatchUserPrompt(in DispatchInput, sess DispatchSession, tail []Disp
 
 // logAsync writes to the audit log without blocking the caller. Errors are
 // logged but never returned — audit failures shouldn't break dispatch.
-func (d *Dispatcher) logAsync(ctx context.Context, in DispatchInput, res DispatchResult, dur time.Duration) {
+func (d *Dispatcher) logAsync(ctx context.Context, in DispatchInput, res DispatchResult, dur time.Duration, sessionID int64) {
 	if d.Store == nil {
 		return
 	}
@@ -963,7 +959,7 @@ func (d *Dispatcher) logAsync(ctx context.Context, in DispatchInput, res Dispatc
 		// we reach this goroutine after a network reply).
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = d.Store.SaveDispatchLog(bgCtx, d.curSession, in.Channel, in.OwnerID, in.Message, string(res.Action), res.UserReply, res.Error, dur.Milliseconds())
+		_ = d.Store.SaveDispatchLog(bgCtx, sessionID, in.Channel, in.OwnerID, in.Message, string(res.Action), res.UserReply, res.Error, dur.Milliseconds())
 	}()
 }
 

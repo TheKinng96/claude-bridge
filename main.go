@@ -818,6 +818,7 @@ func main() {
 		browserEngine.Stop()
 		knowWatcher.Stop()
 		knowPipeline.Stop()
+		compactor.Stop()
 		srv.Stop()
 	} else {
 		// System tray mode: blocks until user quits via tray.
@@ -827,6 +828,7 @@ func main() {
 			browserEngine.Stop()
 			knowWatcher.Stop()
 			knowPipeline.Stop()
+			compactor.Stop()
 			srv.Stop()
 		})
 	}
