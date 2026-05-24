@@ -50,20 +50,56 @@ var allowedProfileFields = map[string]bool{
 // agent package doesn't need to import store.
 type dispatchStoreAdapter struct{ s *store.Store }
 
-func (a *dispatchStoreAdapter) SaveDispatchLog(ctx context.Context, channel, ownerID, message, action, userReply, errText string, durationMS int64) error {
-	return a.s.SaveDispatchLog(ctx, channel, ownerID, message, action, userReply, errText, durationMS)
+func (a *dispatchStoreAdapter) SaveDispatchLog(ctx context.Context, sessionID int64, channel, ownerID, message, action, userReply, errText string, durationMS int64) error {
+	return a.s.SaveDispatchLog(ctx, sessionID, channel, ownerID, message, action, userReply, errText, durationMS)
 }
 
-func (a *dispatchStoreAdapter) RecentDispatchTurns(ctx context.Context, channel, ownerID string, since time.Duration, limit int) ([]agent.DispatchTurn, error) {
-	entries, err := a.s.RecentDispatchTurns(ctx, channel, ownerID, since, limit)
+func (a *dispatchStoreAdapter) ResolveSession(ctx context.Context, channel, ownerID string, gap time.Duration) (agent.DispatchSession, error) {
+	r, err := a.s.ResolveSession(ctx, channel, ownerID, gap)
+	if err != nil {
+		return agent.DispatchSession{}, err
+	}
+	return agent.DispatchSession{ID: r.ID, Summary: r.Summary, SummaryThroughLogID: r.SummaryThroughLogID}, nil
+}
+
+func (a *dispatchStoreAdapter) SessionTail(ctx context.Context, sessionID, sinceLogID int64, limit int) ([]agent.DispatchTurn, error) {
+	entries, err := a.s.SessionTail(ctx, sessionID, sinceLogID, limit)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]agent.DispatchTurn, len(entries))
 	for i, e := range entries {
-		out[i] = agent.DispatchTurn{Message: e.Message, UserReply: e.UserReply, CreatedAt: e.CreatedAt}
+		out[i] = agent.DispatchTurn{ID: e.ID, Message: e.Message, UserReply: e.UserReply, CreatedAt: e.CreatedAt}
 	}
 	return out, nil
+}
+
+func (a *dispatchStoreAdapter) SearchSessionSummaries(ctx context.Context, channel, ownerID, query string, limit int) ([]agent.SessionSummaryHit, error) {
+	hits, err := a.s.SearchSessionSummaries(ctx, channel, ownerID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.SessionSummaryHit, len(hits))
+	for i, h := range hits {
+		out[i] = agent.SessionSummaryHit{SessionID: h.SessionID, Summary: h.Summary, StartedAt: h.StartedAt}
+	}
+	return out, nil
+}
+
+func (a *dispatchStoreAdapter) IdleSessionsToCompact(ctx context.Context, idleThreshold time.Duration, limit int) ([]agent.DispatchSession, error) {
+	rows, err := a.s.IdleSessionsToCompact(ctx, idleThreshold, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]agent.DispatchSession, len(rows))
+	for i, r := range rows {
+		out[i] = agent.DispatchSession{ID: r.ID, Summary: r.Summary, SummaryThroughLogID: r.SummaryThroughLogID}
+	}
+	return out, nil
+}
+
+func (a *dispatchStoreAdapter) UpdateSessionSummary(ctx context.Context, sessionID int64, summary string, throughLogID int64) error {
+	return a.s.UpdateSessionSummary(ctx, sessionID, summary, throughLogID)
 }
 
 // dispatchExecutor implements agent.Executor by bridging Dispatcher actions to
@@ -689,6 +725,16 @@ func main() {
 		&dispatchStoreAdapter{s: appStore},
 	)
 	agentRunner.SetDispatcher(dispatcher)
+
+	// Background session compactor: folds idle conversations' turns into their
+	// rolling summary (owner offline). Uses haiku (knowClient) — cheap; summary
+	// quality is secondary. The "cron" the owner asked for, in-process.
+	compactor := &agent.Compactor{
+		Store:      &dispatchStoreAdapter{s: appStore},
+		Summarizer: knowClient,
+		Logger:     log.Default(),
+	}
+	compactor.Start(context.Background())
 
 	// Index the Cowork output folder into the knowledge base so routine
 	// outputs (md/pdf/images dropped by routines or the owner) become
