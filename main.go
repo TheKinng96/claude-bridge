@@ -463,29 +463,55 @@ func (e *dispatchExecutor) kbRoot(ctx context.Context) *folderread.Root {
 	return folderread.New(cfg.FolderPath)
 }
 
-// vaultReader builds an obsidian.Reader for the effective vault folder (the
-// agent's vault path, or the knowledge-base folder when that's empty).
+// vaultReader builds an obsidian.Reader over the folder the agent reads notes
+// from — see vaultReadPath. So read_note/backlinks/search_notes cover both the
+// owner's dropped notes and the agent's generated ones.
 func (e *dispatchExecutor) vaultReader(ctx context.Context) *obsidian.Reader {
-	return obsidian.NewReader(resolveVaultPath(ctx, e.store))
+	return obsidian.NewReader(vaultReadPath(ctx, e.store))
 }
 
-// resolveVaultPath returns the single folder used for Obsidian vault features.
-// It prefers the explicit agent vault path; when empty it reuses the
-// knowledge-base folder so the owner configures only one folder. The chosen
-// folder is created if missing. Returns "" only when neither is configured.
-func resolveVaultPath(ctx context.Context, st *store.Store) string {
+// ensureDir creates dir (and parents) if missing, logging but not failing.
+func ensureDir(dir string) {
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("vault: mkdir %s: %v", dir, err)
+	}
+}
+
+// vaultReadPath is the folder the agent reads notes FROM: the explicit Obsidian
+// vault path if the owner set one, otherwise the whole knowledge-base folder
+// (so notes the owner dropped anywhere in it are readable). May be "".
+func vaultReadPath(ctx context.Context, st *store.Store) string {
 	acfg, _ := agent.LoadConfig(ctx, st)
-	path := strings.TrimSpace(acfg.ObsidianVaultPath)
-	if path == "" {
-		kcfg, _ := knowledge.LoadConfig(ctx, st)
-		path = strings.TrimSpace(kcfg.FolderPath)
+	if p := strings.TrimSpace(acfg.ObsidianVaultPath); p != "" {
+		ensureDir(p)
+		return p
 	}
-	if path != "" {
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			log.Printf("vault: mkdir %s: %v", path, err)
-		}
+	kcfg, _ := knowledge.LoadConfig(ctx, st)
+	return strings.TrimSpace(kcfg.FolderPath)
+}
+
+// vaultWritePath is where the agent WRITES generated notes (Clients/Topics/
+// Cowork): the explicit vault path if set, else a "Vault" subfolder
+// auto-created inside the knowledge-base folder. Keeping generated files in one
+// subfolder keeps the owner's knowledge folder tidy while staying indexed
+// (the watcher scans the KB folder recursively). Returns "" if no KB folder.
+func vaultWritePath(ctx context.Context, st *store.Store) string {
+	acfg, _ := agent.LoadConfig(ctx, st)
+	if p := strings.TrimSpace(acfg.ObsidianVaultPath); p != "" {
+		ensureDir(p)
+		return p
 	}
-	return path
+	kcfg, _ := knowledge.LoadConfig(ctx, st)
+	kb := strings.TrimSpace(kcfg.FolderPath)
+	if kb == "" {
+		return ""
+	}
+	vault := filepath.Join(kb, "Vault")
+	ensureDir(vault)
+	return vault
 }
 
 func (e *dispatchExecutor) ListKB(ctx context.Context, subdir string) ([]agent.KBEntry, error) {
@@ -725,7 +751,7 @@ func main() {
 	// (for any allowlisted user). Obsidian writer is constructed from saved
 	// config; an empty path makes it a silent no-op.
 	extractor := profile.NewExtractor(knowClient)
-	vaultPath := resolveVaultPath(context.Background(), appStore)
+	vaultPath := vaultWritePath(context.Background(), appStore)
 	obsidianWriter := obsidian.New(vaultPath)
 	coworkRoot := cowork.New(vaultPath)
 	// Dispatcher runs on sonnet for better action selection + replies. The

@@ -77,7 +77,7 @@ const knowledgeHTML = `<!DOCTYPE html>
 
 	<div class="card">
 		<h3>Configuration</h3>
-		<div class="help">Uses Claude Code for classification — no API key required. Each new or changed file triggers one classification call. Haiku 4.5 is recommended — fast + cheap.</div>
+		<div class="help">Uses Claude Code for classification — no API key required. Each new or changed file triggers one classification call. Haiku 4.5 is recommended — fast + cheap. <strong>This one folder is everything:</strong> drop any files here and they become searchable knowledge, the Telegram agent reads notes from here (read_note / search_notes), and a <code>Vault/</code> subfolder is auto-created inside it for the agent's generated client/topic notes. No separate Obsidian folder needed.</div>
 		<div class="form-row">
 			<label for="folderPath">Folder path</label>
 			<div style="display:flex;gap:8px;align-items:center;">
