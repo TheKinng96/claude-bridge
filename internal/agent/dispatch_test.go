@@ -62,6 +62,7 @@ type fakeExec struct {
 	coworkReadCalls     []string
 	coworkSearchCalls   []coworkSearchCall
 	coworkEditCalls     []coworkEditCall
+	coworkCreateCalls   []coworkCreateCall
 	coworkPathCalls     []string
 
 	sendErr      error
@@ -84,6 +85,7 @@ type fakeExec struct {
 	coworkReadResult   *CoworkRead
 	coworkSearchResult []CoworkHit
 	coworkEditResult   *CoworkFile
+	coworkCreateResult *CoworkFile
 	coworkPathResult   string
 	coworkErr          error
 
@@ -97,6 +99,11 @@ type fakeExec struct {
 type coworkSearchCall struct {
 	Query string
 	Days  int
+}
+type coworkCreateCall struct {
+	Date     string
+	Filename string
+	Content  string
 }
 type coworkEditCall struct {
 	Filename string
@@ -219,6 +226,13 @@ func (f *fakeExec) EditCowork(ctx context.Context, filename, op, content string)
 	defer f.mu.Unlock()
 	f.coworkEditCalls = append(f.coworkEditCalls, coworkEditCall{filename, op, content})
 	return f.coworkEditResult, f.coworkErr
+}
+
+func (f *fakeExec) CreateCowork(ctx context.Context, date, filename, content string) (*CoworkFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.coworkCreateCalls = append(f.coworkCreateCalls, coworkCreateCall{date, filename, content})
+	return f.coworkCreateResult, f.coworkErr
 }
 
 func (f *fakeExec) CoworkPath(ctx context.Context, date string) (string, error) {
@@ -642,6 +656,30 @@ func TestRun_EditCoworkRejectsEmptyContent(t *testing.T) {
 	res := d.Run(context.Background(), DispatchInput{})
 	if res.Error == "" {
 		t.Errorf("expected error for empty content")
+	}
+}
+
+func TestRun_CreateCowork(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"create_cowork","params":{"filename":"notes_tan.md","date":"today","content":"hello"},"user_reply":"created."}`)
+	ex.coworkCreateResult = &CoworkFile{Name: "notes_tan.md", Date: "2026-05-19", Size: 5, IsText: true}
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Action != ActionCreateCowork {
+		t.Fatalf("action = %q", res.Action)
+	}
+	if len(ex.coworkCreateCalls) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(ex.coworkCreateCalls))
+	}
+	c := ex.coworkCreateCalls[0]
+	if c.Filename != "notes_tan.md" || c.Date != "today" || c.Content != "hello" {
+		t.Errorf("unexpected create call %+v", c)
+	}
+}
+
+func TestRun_CreateCoworkMissingFilename(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"create_cowork","params":{"content":"x"},"user_reply":"?"}`)
+	res := d.Run(context.Background(), DispatchInput{})
+	if res.Error == "" {
+		t.Fatal("expected error when filename missing")
 	}
 }
 

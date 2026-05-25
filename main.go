@@ -389,7 +389,7 @@ func (e *dispatchExecutor) SummarizeInbox(ctx context.Context, hours int) ([]age
 // ListCowork lists files in the dated cowork folder under the Obsidian vault.
 func (e *dispatchExecutor) ListCowork(ctx context.Context, date string) ([]agent.CoworkFile, error) {
 	if e.cowork == nil || !e.cowork.Enabled() {
-		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("cowork: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	rows, err := e.cowork.List(date)
 	if err != nil {
@@ -406,7 +406,7 @@ func (e *dispatchExecutor) ListCowork(ctx context.Context, date string) ([]agent
 
 func (e *dispatchExecutor) ReadCowork(ctx context.Context, filename string) (*agent.CoworkRead, error) {
 	if e.cowork == nil || !e.cowork.Enabled() {
-		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("cowork: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	content, entry, err := e.cowork.Read(filename)
 	if err != nil {
@@ -425,7 +425,7 @@ func (e *dispatchExecutor) ReadCowork(ctx context.Context, filename string) (*ag
 
 func (e *dispatchExecutor) SearchCowork(ctx context.Context, query string, days int) ([]agent.CoworkHit, error) {
 	if e.cowork == nil || !e.cowork.Enabled() {
-		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("cowork: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	hits, err := e.cowork.Search(query, days)
 	if err != nil {
@@ -440,16 +440,29 @@ func (e *dispatchExecutor) SearchCowork(ctx context.Context, query string, days 
 
 func (e *dispatchExecutor) CoworkPath(ctx context.Context, date string) (string, error) {
 	if e.cowork == nil || !e.cowork.Enabled() {
-		return "", fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+		return "", fmt.Errorf("cowork: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	return e.cowork.EnsureDate(date)
 }
 
 func (e *dispatchExecutor) EditCowork(ctx context.Context, filename, op, content string) (*agent.CoworkFile, error) {
 	if e.cowork == nil || !e.cowork.Enabled() {
-		return nil, fmt.Errorf("cowork: configure an Obsidian vault path on the Dashboard first")
+		return nil, fmt.Errorf("cowork: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	entry, err := e.cowork.Edit(filename, content, cowork.EditOp(op))
+	if err != nil {
+		return nil, err
+	}
+	return &agent.CoworkFile{
+		Name: entry.Name, Date: entry.Date, Size: entry.Size, IsText: entry.IsText, ModTime: entry.ModTime,
+	}, nil
+}
+
+func (e *dispatchExecutor) CreateCowork(ctx context.Context, date, filename, content string) (*agent.CoworkFile, error) {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return nil, fmt.Errorf("cowork: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
+	}
+	entry, err := e.cowork.Create(date, filename, content)
 	if err != nil {
 		return nil, err
 	}
@@ -479,6 +492,57 @@ func ensureDir(dir string) {
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		log.Printf("vault: mkdir %s: %v", dir, err)
+	}
+}
+
+// defaultKnowledgeFolder is where `make run` auto-creates the knowledge vault on
+// first run. Kept separate so it's testable / overridable.
+func defaultKnowledgeFolder() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "Documents", "Claude Bridge Knowledge"), nil
+}
+
+// ensureKnowledgeFolder makes the dispatch knowledge tools work out of the box.
+// If no KB folder is configured, it creates folder (a Vault subfolder for
+// generated notes, a .obsidian marker so Obsidian opens it as a vault, and a
+// starter note) and saves the path to config so it shows up on the Knowledge
+// tab. If a folder is already set, it is left untouched — never override the
+// owner's choice. Returns the (possibly updated) config.
+func ensureKnowledgeFolder(ctx context.Context, st *store.Store, cfg knowledge.Config, folder string) knowledge.Config {
+	if strings.TrimSpace(cfg.FolderPath) != "" {
+		return cfg
+	}
+	ensureDir(folder)
+	ensureDir(filepath.Join(folder, "Vault"))
+	ensureDir(filepath.Join(folder, ".obsidian")) // marks folder as an Obsidian vault
+	seedWelcomeNote(folder)
+	cfg.FolderPath = folder
+	if err := knowledge.SaveConfig(ctx, st, cfg); err != nil {
+		log.Printf("[knowledge] save default folder config: %v", err)
+		return cfg
+	}
+	log.Printf("[knowledge] auto-created knowledge vault at %s", folder)
+	return cfg
+}
+
+// seedWelcomeNote writes a starter note iff absent (never clobber owner edits).
+func seedWelcomeNote(folder string) {
+	p := filepath.Join(folder, "Welcome.md")
+	if _, err := os.Stat(p); err == nil {
+		return
+	}
+	const body = `# Welcome to your Claude Bridge knowledge vault
+
+Drop policy docs, brochures, and notes anywhere in this folder. Claude
+classifies and indexes them, and the dispatch agent can read them.
+
+Agent-generated notes (client profiles, topic summaries) land in **Vault/**.
+`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		log.Printf("[knowledge] seed welcome note: %v", err)
 	}
 }
 
@@ -519,7 +583,7 @@ func vaultWritePath(ctx context.Context, st *store.Store) string {
 func (e *dispatchExecutor) ListKB(ctx context.Context, subdir string) ([]agent.KBEntry, error) {
 	r := e.kbRoot(ctx)
 	if !r.Enabled() {
-		return nil, fmt.Errorf("set a knowledge base folder on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge base folder on the Knowledge tab first")
 	}
 	rows, err := r.List(subdir)
 	if err != nil {
@@ -535,7 +599,7 @@ func (e *dispatchExecutor) ListKB(ctx context.Context, subdir string) ([]agent.K
 func (e *dispatchExecutor) ReadKB(ctx context.Context, path string) (string, *agent.KBEntry, error) {
 	r := e.kbRoot(ctx)
 	if !r.Enabled() {
-		return "", nil, fmt.Errorf("set a knowledge base folder on the Dashboard first")
+		return "", nil, fmt.Errorf("set a knowledge base folder on the Knowledge tab first")
 	}
 	text, ent, err := r.Read(path)
 	if err != nil {
@@ -551,7 +615,7 @@ func (e *dispatchExecutor) ReadKB(ctx context.Context, path string) (string, *ag
 func (e *dispatchExecutor) ReadNote(ctx context.Context, name string) (*agent.NoteView, error) {
 	rd := e.vaultReader(ctx)
 	if !rd.Enabled() {
-		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	n, err := rd.ReadNote(name)
 	if err != nil {
@@ -566,7 +630,7 @@ func (e *dispatchExecutor) ReadNote(ctx context.Context, name string) (*agent.No
 func (e *dispatchExecutor) Backlinks(ctx context.Context, name string) ([]string, error) {
 	rd := e.vaultReader(ctx)
 	if !rd.Enabled() {
-		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	return rd.Backlinks(name)
 }
@@ -574,7 +638,7 @@ func (e *dispatchExecutor) Backlinks(ctx context.Context, name string) ([]string
 func (e *dispatchExecutor) SearchNotes(ctx context.Context, query, tag string) ([]agent.NoteHit, error) {
 	rd := e.vaultReader(ctx)
 	if !rd.Enabled() {
-		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Dashboard first")
+		return nil, fmt.Errorf("set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
 	}
 	hits, err := rd.Search(query, tag)
 	if err != nil {
@@ -724,6 +788,11 @@ func main() {
 	// Boot the knowledge subsystem: load config + API key, start pipeline + watcher.
 	knowCtx := context.Background()
 	knowCfg, _ := knowledge.LoadConfig(knowCtx, appStore)
+	if folder, err := defaultKnowledgeFolder(); err != nil {
+		log.Printf("[knowledge] cannot resolve default folder: %v", err)
+	} else {
+		knowCfg = ensureKnowledgeFolder(knowCtx, appStore, knowCfg, folder)
+	}
 	knowClient := claude.New("", knowCfg.Model)
 	knowPipeline := knowledge.NewPipeline(appStore, knowClient)
 	knowPipeline.Configure(knowCfg)

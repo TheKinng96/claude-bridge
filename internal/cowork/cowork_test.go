@@ -293,4 +293,63 @@ func TestDisabledRoot(t *testing.T) {
 	if _, err := r.Edit("x.md", "", OpAppend); err == nil {
 		t.Fatal("expected disabled error")
 	}
+	if _, err := r.Create("today", "x.md", ""); err == nil {
+		t.Fatal("expected disabled error")
+	}
+}
+
+func TestCreate(t *testing.T) {
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	r := fixedRoot(t, now)
+
+	entry, err := r.Create("today", "notes_tan.md", "hello")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if entry.Name != "notes_tan.md" || entry.Date != "2026-05-19" || !entry.IsText {
+		t.Errorf("unexpected entry %+v", entry)
+	}
+	got, _ := os.ReadFile(entry.Path)
+	if string(got) != "hello" {
+		t.Errorf("content = %q, want %q", got, "hello")
+	}
+}
+
+func TestCreate_DefaultsExtensionAndDate(t *testing.T) {
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	r := fixedRoot(t, now)
+
+	entry, err := r.Create("", "scratch", "") // no ext, empty date, empty body
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if entry.Name != "scratch.md" {
+		t.Errorf("name = %q, want scratch.md", entry.Name)
+	}
+	if entry.Date != "2026-05-19" {
+		t.Errorf("date = %q, want today", entry.Date)
+	}
+}
+
+func TestCreate_FailsWhenExists(t *testing.T) {
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	r := fixedRoot(t, now)
+	mustWrite(t, r, now, "draft.md", "old")
+
+	if _, err := r.Create("today", "draft.md", "new"); err == nil {
+		t.Fatal("expected error creating existing file")
+	}
+	if got, _ := os.ReadFile(filepath.Join(r.DateFolder(now), "draft.md")); string(got) != "old" {
+		t.Errorf("existing file clobbered: %q", got)
+	}
+}
+
+func TestCreate_RejectsPathSeparators(t *testing.T) {
+	now := time.Date(2026, 5, 19, 10, 0, 0, 0, time.UTC)
+	r := fixedRoot(t, now)
+	for _, bad := range []string{"../escape.md", "sub/dir.md", ""} {
+		if _, err := r.Create("today", bad, "x"); err == nil {
+			t.Errorf("expected error for filename %q", bad)
+		}
+	}
 }

@@ -28,6 +28,7 @@ const (
 	ActionReadCowork     Action = "read_cowork"
 	ActionSearchCowork   Action = "search_cowork"
 	ActionEditCowork     Action = "edit_cowork"
+	ActionCreateCowork   Action = "create_cowork"
 	ActionCoworkPath     Action = "cowork_path"
 	ActionListKB         Action = "list_kb"
 	ActionReadKB         Action = "read_kb"
@@ -158,6 +159,7 @@ type Executor interface {
 	ReadCowork(ctx context.Context, filename string) (*CoworkRead, error)
 	SearchCowork(ctx context.Context, query string, days int) ([]CoworkHit, error)
 	EditCowork(ctx context.Context, filename, op, content string) (*CoworkFile, error)
+	CreateCowork(ctx context.Context, date, filename, content string) (*CoworkFile, error)
 	CoworkPath(ctx context.Context, date string) (string, error)
 	ListKB(ctx context.Context, subdir string) ([]KBEntry, error)
 	ReadKB(ctx context.Context, path string) (string, *KBEntry, error)
@@ -233,7 +235,7 @@ const dispatchSystemPrompt = `You are the owner's dispatch agent. The owner mess
 Respond with ONE JSON object only — no preamble, no markdown fences. Schema:
 
 {
-  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "recall_memory" | "reply",
+  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "create_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "recall_memory" | "reply",
   "params": { ... },
   "user_reply": "Short status to send back to the owner (1-2 sentences).",
   "continue": false
@@ -261,6 +263,7 @@ Action params:
 - read_cowork: {"filename": "draft_tan.md" | "2026-05-19/draft_tan.md"} — return file content. Bare names fuzzy-match within the last 14 days, newest wins. Binary files (png/pdf) come back as a placeholder.
 - search_cowork: {"query": "tan ws", "days": 7} — grep across text files in recent date folders (days defaults to 7, max 30).
 - edit_cowork: {"filename": "draft_tan.md", "op": "append" | "replace", "content": "..."} — modify an existing text file. Use "append" to add a line/block; "replace" rewrites the entire file. Binary files cannot be edited.
+- create_cowork: {"filename": "notes_tan.md", "date": "today" | "YYYY-MM-DD", "content": "..."} — create a NEW text file (date defaults to today, ".md" added if no extension). Fails if a file of that name already exists — use edit_cowork to modify existing files.
 - cowork_path: {"date": "today" | "yesterday" | "YYYY-MM-DD"} — return (and create) the absolute path of the cowork folder for that date. Use when the owner asks where files go, or where a routine should write its output.
 - list_kb: {"subdir": ""} — list files/folders in the shared knowledge-base folder. Empty subdir lists the top level; pass a relative subfolder to drill in.
 - read_kb: {"path": "report.md" | "sub/report.md"} — read a file from the knowledge-base folder by its relative path (use list_kb first to get paths). Binary files return a placeholder.
@@ -278,7 +281,7 @@ Rules:
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
 // sync with dispatchSystemPrompt schema.
-const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, cowork_path, list_kb, read_kb, read_note, backlinks, search_notes, recall_memory, reply`
+const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, create_cowork, cowork_path, list_kb, read_kb, read_note, backlinks, search_notes, recall_memory, reply`
 
 // sessionGap: messages this far apart or more start a new session.
 const sessionGap = time.Hour
@@ -752,6 +755,24 @@ func (d *Dispatcher) execute(ctx context.Context, in DispatchInput, p *dispatchP
 			op = "append"
 		}
 		return fmt.Sprintf("(%s %s/%s, now %d bytes)", op, entry.Date, entry.Name, entry.Size), nil
+
+	case ActionCreateCowork:
+		var args struct {
+			Date     string `json:"date"`
+			Filename string `json:"filename"`
+			Content  string `json:"content"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("create_cowork params: %w", err)
+		}
+		if strings.TrimSpace(args.Filename) == "" {
+			return "", errors.New("create_cowork: filename required")
+		}
+		entry, err := d.Exec.CreateCowork(ctx, args.Date, args.Filename, args.Content)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("(created %s/%s, %d bytes)", entry.Date, entry.Name, entry.Size), nil
 
 	case ActionCoworkPath:
 		var args struct {

@@ -287,6 +287,60 @@ func (r *Root) Edit(filename, content string, op EditOp) (*FileEntry, error) {
 	return entry, nil
 }
 
+// Create writes a brand-new text file into the date folder ("", "today",
+// "yesterday", or YYYY-MM-DD) and returns its entry. filename must be a bare
+// name (no path separators); a "Cowork/" prefix is stripped and a ".md"
+// extension is added when none is given. Fails if a file of that name already
+// exists — callers should Edit existing files instead of clobbering them.
+func (r *Root) Create(date, filename, content string) (*FileEntry, error) {
+	if !r.Enabled() {
+		return nil, ErrDisabled
+	}
+	filename = strings.TrimSpace(filename)
+	filename = strings.TrimPrefix(filename, "Cowork/")
+	filename = strings.TrimPrefix(filename, "cowork/")
+	if filename == "" {
+		return nil, errors.New("cowork: filename required")
+	}
+	if strings.ContainsAny(filename, `/\`) || strings.Contains(filename, "..") {
+		return nil, fmt.Errorf("cowork: filename must be a bare name, got %q", filename)
+	}
+	if filepath.Ext(filename) == "" {
+		filename += ".md"
+	}
+	t, err := r.ResolveDate(date)
+	if err != nil {
+		return nil, fmt.Errorf("cowork: parse date %q: %w", date, err)
+	}
+	dir, err := r.EnsureDate(date)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, filename)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil, fmt.Errorf("cowork: %s already exists — edit it instead of recreating", filename)
+		}
+		return nil, err
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		return nil, err
+	}
+	entry := &FileEntry{
+		Name:   filename,
+		Date:   t.Format("2006-01-02"),
+		Path:   path,
+		IsText: isTextExt(filepath.Ext(filename)),
+	}
+	if info, err := os.Stat(path); err == nil {
+		entry.Size = info.Size()
+		entry.ModTime = info.ModTime()
+	}
+	return entry, nil
+}
+
 // WriteOutput creates a new file inside today's folder. routine is a short
 // label (e.g. "broadcast"); slug is a per-call identifier; ext should include
 // the dot (".md", ".png", ".json"). Returns the full path written.
