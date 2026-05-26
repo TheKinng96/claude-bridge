@@ -323,7 +323,7 @@ func TestRun_ReplyActionPassesThrough(t *testing.T) {
 }
 
 func TestRun_SendWhatsAppDispatches(t *testing.T) {
-	d, _, ex, _ := newTestDispatcher(`{"action":"send_whatsapp","params":{"phone":"60111","message":"hi"},"user_reply":"On it."}`)
+	d, _, ex, _ := newTestDispatcher(`{"action":"send_whatsapp","params":{"phone":"60111","message":"hi"},"user_reply":"Sent to 60111."}`)
 	res := d.Run(context.Background(), DispatchInput{Channel: "telegram"})
 	if res.Error != "" {
 		t.Fatalf("error: %s", res.Error)
@@ -331,8 +331,27 @@ func TestRun_SendWhatsAppDispatches(t *testing.T) {
 	if len(ex.sendCalls) != 1 || ex.sendCalls[0].Phone != "60111" || ex.sendCalls[0].Message != "hi" {
 		t.Errorf("send calls: %+v", ex.sendCalls)
 	}
-	if !strings.Contains(res.UserReply, "60111") {
-		t.Errorf("reply missing status: %s", res.UserReply)
+	if res.UserReply != "Sent to 60111." {
+		t.Errorf("reply should pass model text through: %s", res.UserReply)
+	}
+}
+
+func TestRun_SendWhatsAppNoDuplicateStatus(t *testing.T) {
+	// Regression: a one-shot send used to append the executor's "(sent to …)"
+	// onto the model's reply, producing "Sent to Ana (60111). (sent to 60111)".
+	d, _, ex, _ := newTestDispatcher(`{"action":"send_whatsapp","params":{"phone":"60111","message":"hi"},"user_reply":"Sent to Ana (60111)."}`)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram"})
+	if res.Error != "" {
+		t.Fatalf("error: %s", res.Error)
+	}
+	if len(ex.sendCalls) != 1 {
+		t.Fatalf("send not dispatched: %+v", ex.sendCalls)
+	}
+	if strings.Contains(res.UserReply, "(sent to") {
+		t.Errorf("duplicate executor status appended: %q", res.UserReply)
+	}
+	if res.UserReply != "Sent to Ana (60111)." {
+		t.Errorf("reply should equal model text, got %q", res.UserReply)
 	}
 }
 

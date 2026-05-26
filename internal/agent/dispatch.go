@@ -276,7 +276,7 @@ Action params:
 Rules:
 1. If the owner asks for something destructive or large-scale (>20 recipients), reply with action "reply" and ask for explicit confirmation. Do not dispatch directly.
 2. Never invent phone numbers or JIDs. If the owner says "send to Alice" without a number, return action "reply" asking which number.
-3. Keep user_reply short. For a single action (continue false), the action's result is appended to your user_reply automatically. For a continue:true chain, intermediate user_reply text is NOT sent — only your final "reply" message reaches the owner.
+3. Keep user_reply short. For a single action (continue false), the action's result is appended to your user_reply automatically — EXCEPT send_whatsapp, where nothing is appended, so write user_reply as the complete past-tense confirmation, e.g. "Sent to Ana (60123456789).". For a continue:true chain, intermediate user_reply text is NOT sent — only your final "reply" message reaches the owner.
 4. If unsure which action fits, default to "reply" with your best guess at help text.`
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
@@ -358,12 +358,18 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		// Chain only when the model asked to continue AND a step remains.
 		// Otherwise behave one-shot: append this action's result and stop.
 		if !parsed.Continue || step == maxDispatchSteps-1 {
-			if exErr != nil {
+			switch {
+			case exErr != nil:
 				res.Error = exErr.Error()
 				res.UserReply = parsed.UserReply + " (failed: " + truncate(exErr.Error(), 100) + ")"
-			} else if status != "" {
+			case parsed.Action == ActionSendWhatsApp:
+				// The model's reply already confirms the send; the executor's
+				// "(sent to …)" status duplicates it (and clashes in tense),
+				// so trust the reply and drop the status on success.
+				res.UserReply = strings.TrimSpace(parsed.UserReply)
+			case status != "":
 				res.UserReply = strings.TrimSpace(parsed.UserReply + " " + status)
-			} else {
+			default:
 				res.UserReply = parsed.UserReply
 			}
 			break

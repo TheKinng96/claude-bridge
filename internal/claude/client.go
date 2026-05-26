@@ -84,6 +84,22 @@ func (c *Client) Model() string {
 // APICalls returns the running count of classification calls this process has made.
 func (c *Client) APICalls() int64 { return atomic.LoadInt64(&c.apiCalls) }
 
+// claudeExitError formats a non-zero exit from the `claude` CLI. It surfaces
+// both stderr and stdout because `claude --print` frequently writes its real
+// error (auth, login, model) to stdout, leaving stderr empty — which otherwise
+// produced a useless "claude exited 1: " with no cause.
+func claudeExitError(code int, stderr, stdout []byte) error {
+	detail := strings.TrimSpace(string(stderr))
+	if out := strings.TrimSpace(string(stdout)); out != "" {
+		if detail == "" {
+			detail = out
+		} else {
+			detail += " | " + out
+		}
+	}
+	return fmt.Errorf("claude exited %d: %s", code, truncate(detail, 300))
+}
+
 // Reply generates a conversational reply. systemPrompt sets the agent role;
 // conversation contains the full formatted context (history + incoming message).
 // Returns raw reply text — no JSON parsing.
@@ -103,7 +119,7 @@ func (c *Client) Reply(ctx context.Context, systemPrompt, conversation string) (
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return "", fmt.Errorf("claude exited %d: %s", exitErr.ExitCode(), truncate(string(exitErr.Stderr), 200))
+			return "", claudeExitError(exitErr.ExitCode(), exitErr.Stderr, out)
 		}
 		return "", err
 	}
@@ -165,7 +181,7 @@ func (c *Client) classify(ctx context.Context, text string, imageBytes []byte, m
 		if err != nil {
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				lastErr = fmt.Errorf("claude exited %d: %s", exitErr.ExitCode(), truncate(string(exitErr.Stderr), 200))
+				lastErr = claudeExitError(exitErr.ExitCode(), exitErr.Stderr, out)
 			} else {
 				lastErr = err
 			}
