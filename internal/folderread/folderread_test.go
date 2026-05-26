@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, dir, name, body string) {
@@ -140,6 +141,99 @@ func TestReadSymlinkEscapeRejected(t *testing.T) {
 	text, _, err := r.Read("link/secret.txt")
 	if err == nil {
 		t.Fatalf("expected symlink escape to be rejected, got content %q", text)
+	}
+}
+
+// A bare filename (no slash) that isn't at the root resolves by searching the
+// whole folder — the KB folder is the superset of the Vault and Cowork
+// subfolders, so the owner can say "read weather.txt" without knowing its path.
+func TestReadBareNameFindsInSubdir(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Vault/weather.txt", "sunny 28C")
+	r := New(dir)
+	text, e, err := r.Read("weather.txt")
+	if err != nil {
+		t.Fatalf("bare-name search should find Vault/weather.txt: %v", err)
+	}
+	if text != "sunny 28C" {
+		t.Fatalf("unexpected content %q", text)
+	}
+	if e == nil || e.RelPath != "Vault/weather.txt" {
+		t.Fatalf("entry should report real relpath, got %+v", e)
+	}
+}
+
+// On multiple matches, the newest file wins (mirrors cowork fuzzy behavior).
+func TestReadBareNameNewestWins(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "old/report.md", "OLD")
+	writeFile(t, dir, "new/report.md", "NEW")
+	old := time.Now().Add(-48 * time.Hour)
+	recent := time.Now().Add(-1 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "old/report.md"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(dir, "new/report.md"), recent, recent); err != nil {
+		t.Fatal(err)
+	}
+	r := New(dir)
+	text, _, err := r.Read("report.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "NEW" {
+		t.Fatalf("newest match should win, got %q", text)
+	}
+}
+
+// A bare name with no extension matches a file by stem ("weather" -> weather.txt).
+func TestReadBareNameStemMatch(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Vault/weather.txt", "sunny")
+	r := New(dir)
+	text, _, err := r.Read("weather")
+	if err != nil {
+		t.Fatalf("stem match should find weather.txt: %v", err)
+	}
+	if text != "sunny" {
+		t.Fatalf("unexpected content %q", text)
+	}
+}
+
+// A bare name that exists nowhere returns a clear error naming the file and the
+// fact that the whole folder was searched — not a raw stat path error.
+func TestReadBareNameMissError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Vault/other.md", "x")
+	r := New(dir)
+	_, _, err := r.Read("weather.txt")
+	if err == nil {
+		t.Fatal("expected miss error for absent bare name")
+	}
+	if !strings.Contains(err.Error(), "weather.txt") {
+		t.Fatalf("error should name the file, got %v", err)
+	}
+}
+
+// Dotfolders (e.g. .obsidian, .git) are skipped by the bare-name search so app
+// config files never surface as knowledge-base content.
+func TestReadBareNameSkipsDotDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".obsidian/weather.txt", "config")
+	r := New(dir)
+	if _, _, err := r.Read("weather.txt"); err == nil {
+		t.Fatal("file inside dotfolder must not be matched")
+	}
+}
+
+// A path WITH a slash is an exact lookup — no fuzzy fallback — so a wrong path
+// errors instead of silently matching a same-named file elsewhere.
+func TestReadRelPathNoFuzzyFallback(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Vault/weather.txt", "sunny")
+	r := New(dir)
+	if _, _, err := r.Read("wrongdir/weather.txt"); err == nil {
+		t.Fatal("explicit relpath must not fall back to fuzzy search")
 	}
 }
 

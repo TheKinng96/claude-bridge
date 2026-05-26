@@ -2,6 +2,9 @@
 claude-bridge
 claude-bridge.exe
 
+# Background run log (make restart)
+claude-bridge.log
+
 # Data directory (created at runtime)
 *.db
 *.db-wal

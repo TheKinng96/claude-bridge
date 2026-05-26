@@ -164,6 +164,15 @@ func (r *Root) Read(rel string) (string, *Entry, error) {
 	}
 	info, err := os.Stat(full)
 	if err != nil {
+		// Bare filename that isn't at the root: search the whole folder for a
+		// file of that name. The KB folder is the superset of the Vault and
+		// Cowork subfolders, so the owner can name a file without its path.
+		if errors.Is(err, os.ErrNotExist) && isBareName(rel) {
+			if found, ok := r.findByName(rel); ok {
+				return r.Read(found)
+			}
+			return "", nil, fmt.Errorf("folderread: no file named %q found in the knowledge folder", rel)
+		}
 		return "", nil, fmt.Errorf("folderread: %w", err)
 	}
 	if info.IsDir() {
@@ -189,4 +198,64 @@ func (r *Root) Read(rel string) (string, *Entry, error) {
 		return string(data[:MaxReadBytes]) + "\n…(truncated)", e, nil
 	}
 	return string(data), e, nil
+}
+
+// isBareName reports whether rel is a single filename with no path separator —
+// the only shape that triggers Read's folder-wide search fallback. Paths with a
+// slash are treated as exact lookups.
+func isBareName(rel string) bool {
+	s := strings.TrimSpace(filepath.ToSlash(rel))
+	return s != "" && !strings.Contains(s, "/")
+}
+
+// findByName walks the folder for a file whose name matches the bare query
+// (case-insensitive). An exact basename match wins; if the query has no
+// extension, a stem match ("weather" → "weather.txt") is accepted too. On
+// multiple matches the newest file wins. Dotfolders, dotfiles and symlinks are
+// skipped so app config (.obsidian) and symlinked files never leak in. Returns
+// a slash relpath suitable for Read, and whether anything matched.
+func (r *Root) findByName(name string) (string, bool) {
+	target := strings.ToLower(strings.TrimSpace(filepath.ToSlash(name)))
+	targetStem := strings.TrimSuffix(target, filepath.Ext(target))
+	hasExt := filepath.Ext(target) != ""
+
+	var bestRel string
+	var bestMod time.Time
+	_ = filepath.WalkDir(r.Path, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		base := d.Name()
+		if d.IsDir() {
+			if p != r.Path && strings.HasPrefix(base, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(base, ".") || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		lb := strings.ToLower(base)
+		match := lb == target
+		if !match && !hasExt {
+			match = strings.TrimSuffix(lb, filepath.Ext(lb)) == targetStem
+		}
+		if !match {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		if bestRel == "" || info.ModTime().After(bestMod) {
+			rel, rerr := filepath.Rel(r.Path, p)
+			if rerr != nil {
+				return nil
+			}
+			bestRel = filepath.ToSlash(rel)
+			bestMod = info.ModTime()
+		}
+		return nil
+	})
+	return bestRel, bestRel != ""
 }
