@@ -6,7 +6,9 @@
 #
 # Common use:
 #   make build     # compile ./claude-bridge
-#   make run       # build + run
+#   make run       # build + run (foreground)
+#   make restart   # build + stop running app + relaunch in background
+#   make stop      # stop the running background app
 #   make update    # git pull + build + run   (dad's update cycle)
 #   make test      # run the unit tests
 #   make release   # build with the git version baked in (enables self-update)
@@ -16,8 +18,9 @@ PKG         := .
 CGO         := CGO_ENABLED=1
 VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS_REL := -ldflags "-X main.version=$(VERSION)"
+LOGFILE     := claude-bridge.log
 
-.PHONY: build run update test tidy clean release version
+.PHONY: build run restart stop update test tidy clean release version
 
 # Dev build. Leaves main.version = "dev", which disables the self-updater —
 # the right default for a machine without an Apple Developer ID.
@@ -26,6 +29,21 @@ build:
 
 run: build
 	./$(BINARY)
+
+# Stop the running app, rebuild, relaunch detached in the background (survives
+# closing the terminal; logs to $(LOGFILE)). The 'claude-bridge$$' pattern
+# matches the app's command line — which ENDS in the binary name — but NOT the
+# 'claude-bridge --mcp' helper that Claude.app spawns, so that one is left alone.
+restart: build stop
+	@nohup ./$(BINARY) >$(LOGFILE) 2>&1 </dev/null &
+	@sleep 1
+	@echo "claude-bridge running in background (pid $$(pgrep -f 'claude-bridge$$')). Logs: tail -f $(LOGFILE)"
+
+# Stop the background app only (leaves the --mcp helper running). No error if
+# nothing is running.
+stop:
+	@-pkill -f 'claude-bridge$$' 2>/dev/null && echo "stopped running claude-bridge" || echo "no running claude-bridge"
+	@sleep 1
 
 # Dad's one-command update: pull latest main, rebuild, run.
 update:
