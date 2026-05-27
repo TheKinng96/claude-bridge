@@ -317,8 +317,10 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 	transcript := buildDispatchUserPrompt(in, sess, tail)
 	var trail []string
 
+	sysPrompt := d.ownerProfileSystemPrompt(ctx)
+
 	for step := 0; step < maxDispatchSteps; step++ {
-		raw, err := d.Claude.Reply(ctx, dispatchSystemPrompt, transcript)
+		raw, err := d.Claude.Reply(ctx, sysPrompt, transcript)
 		if err != nil {
 			res.Error = err.Error()
 			res.UserReply = "Sorry — dispatch failed: " + truncate(err.Error(), 200)
@@ -397,6 +399,22 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 
 	d.logAsync(ctx, in, res, time.Since(start), sess.ID)
 	return res
+}
+
+// ownerProfileSystemPrompt returns dispatchSystemPrompt, optionally prefixed
+// with the owner's profile so the bot adopts it as its persona. A missing or
+// failed profile read degrades silently to the base prompt — the profile is
+// context, never a hard dependency.
+func (d *Dispatcher) ownerProfileSystemPrompt(ctx context.Context) string {
+	if d.Exec == nil {
+		return dispatchSystemPrompt
+	}
+	profile, err := d.Exec.GetOwnerProfile(ctx)
+	if err != nil || strings.TrimSpace(profile) == "" {
+		return dispatchSystemPrompt
+	}
+	return "OWNER PROFILE (your persona and context — honor it, but ALWAYS obey the OUTPUT SCHEMA below):\n" +
+		strings.TrimSpace(profile) + "\n\n" + dispatchSystemPrompt
 }
 
 // dispatchPayload is the parsed JSON Claude returns.

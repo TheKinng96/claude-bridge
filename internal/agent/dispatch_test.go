@@ -958,3 +958,30 @@ func TestRecallMemoryRequiresQuery(t *testing.T) {
 		t.Fatalf("expected a 'query required' style failure, got %q", res.UserReply)
 	}
 }
+
+func TestRun_InjectsOwnerProfile(t *testing.T) {
+	runner := &fakeClaude{reply: `{"action":"reply","user_reply":"hi"}`}
+	ex := &fakeExec{ownerProfile: "I am Dad, an insurance agent. Be formal."}
+	d := NewDispatcher(runner, ex, nil)
+
+	d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "hello"})
+
+	if !strings.Contains(runner.lastS, "I am Dad, an insurance agent") {
+		t.Fatalf("system prompt missing owner profile; got:\n%s", runner.lastS)
+	}
+	if !strings.Contains(runner.lastS, "Respond with ONE JSON object only") {
+		t.Fatalf("system prompt dropped the action schema; got:\n%s", runner.lastS)
+	}
+}
+
+func TestRun_NoProfile_SystemPromptUnchanged(t *testing.T) {
+	runner := &fakeClaude{reply: `{"action":"reply","user_reply":"hi"}`}
+	ex := &fakeExec{} // empty ownerProfile
+	d := NewDispatcher(runner, ex, nil)
+
+	d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "hello"})
+
+	if strings.Contains(runner.lastS, "OWNER PROFILE") {
+		t.Fatalf("empty profile should not inject a profile block; got:\n%s", runner.lastS)
+	}
+}
