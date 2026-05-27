@@ -29,6 +29,7 @@ import (
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/obsidian"
+	"claude-bridge/internal/ownerprofile"
 	"claude-bridge/internal/profile"
 	"claude-bridge/internal/server"
 	"claude-bridge/internal/store"
@@ -112,7 +113,8 @@ type dispatchExecutor struct {
 	store     *store.Store
 	extractor *profile.Extractor
 	obsidian  *obsidian.Writer // nil-safe — Writer methods no-op when path is empty
-	cowork    *cowork.Root     // nil-safe via Enabled() — empty vault returns ErrDisabled
+	cowork       *cowork.Root     // nil-safe via Enabled() — empty vault returns ErrDisabled
+	ownerProfile *ownerprofile.Store
 }
 
 // syncObsidian writes the profile to the Obsidian vault if a writer is wired.
@@ -471,6 +473,20 @@ func (e *dispatchExecutor) CreateCowork(ctx context.Context, date, filename, con
 	}, nil
 }
 
+func (e *dispatchExecutor) GetOwnerProfile(ctx context.Context) (string, error) {
+	if e.ownerProfile == nil || !e.ownerProfile.Enabled() {
+		return "", nil // no vault → empty profile, bot uses base prompt
+	}
+	return e.ownerProfile.Read()
+}
+
+func (e *dispatchExecutor) UpdateOwnerProfile(ctx context.Context, content, mode string) error {
+	if e.ownerProfile == nil || !e.ownerProfile.Enabled() {
+		return fmt.Errorf("owner profile: set a knowledge-base folder (or Obsidian vault) on the Knowledge tab first")
+	}
+	return e.ownerProfile.Write(content, mode)
+}
+
 // kbRoot builds a folderread.Root from the current knowledge config so
 // dashboard folder changes take effect without a restart.
 func (e *dispatchExecutor) kbRoot(ctx context.Context) *folderread.Root {
@@ -543,6 +559,35 @@ Agent-generated notes (client profiles, topic summaries) land in **Vault/**.
 `
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		log.Printf("[knowledge] seed welcome note: %v", err)
+	}
+}
+
+// seedProfileNote writes a starter Profile.md iff absent and a vault exists, so
+// the owner has a note to edit in Obsidian. Never clobbers an existing profile.
+func seedProfileNote(vaultDir string) {
+	if strings.TrimSpace(vaultDir) == "" {
+		return
+	}
+	p := filepath.Join(vaultDir, ownerprofile.ProfileFilename)
+	if _, err := os.Stat(p); err == nil {
+		return
+	}
+	const body = `# Owner Profile
+
+This note is the dispatch bot's persona and the shared profile across Cowork and
+Claude Bridge. Edit it here, in the Cowork app (it calls update_owner_profile),
+or by telling the Telegram bot "update my profile ...".
+
+## Who I am
+
+(describe yourself, your business, your clients)
+
+## How the assistant should behave
+
+(tone, language, do's and don'ts)
+`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		log.Printf("[ownerprofile] seed profile note: %v", err)
 	}
 }
 
@@ -837,18 +882,21 @@ func main() {
 	vaultPath := vaultWritePath(context.Background(), appStore)
 	obsidianWriter := obsidian.New(vaultPath)
 	coworkRoot := cowork.New(vaultPath)
+	ownerProfileStore := ownerprofile.New(vaultPath)
+	seedProfileNote(vaultPath)
 	// Dispatcher runs on sonnet for better action selection + replies. The
 	// shared knowClient stays on haiku for bulk classification/auto-reply.
 	dispatchClient := claude.New("", "claude-sonnet-4-6")
 	dispatcher := agent.NewDispatcher(
 		dispatchClient,
 		&dispatchExecutor{
-			wa:        wa,
-			bq:        srv.BatchQueue(),
-			store:     appStore,
-			extractor: extractor,
-			obsidian:  obsidianWriter,
-			cowork:    coworkRoot,
+			wa:           wa,
+			bq:           srv.BatchQueue(),
+			store:        appStore,
+			extractor:    extractor,
+			obsidian:     obsidianWriter,
+			cowork:       coworkRoot,
+			ownerProfile: ownerProfileStore,
 		},
 		&dispatchStoreAdapter{s: appStore},
 	)
@@ -870,6 +918,7 @@ func main() {
 	// ensure today's folder exists so the watcher has a directory to add;
 	// new date folders are picked up on the next Rescan.
 	srv.SetCowork(coworkRoot)
+	srv.SetOwnerProfile(ownerProfileStore)
 	if coworkRoot.Enabled() {
 		if _, err := coworkRoot.EnsureToday(); err != nil {
 			log.Printf("[cowork] ensure today folder: %v", err)
