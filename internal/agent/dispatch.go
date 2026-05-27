@@ -166,6 +166,8 @@ type Executor interface {
 	ReadNote(ctx context.Context, name string) (*NoteView, error)
 	Backlinks(ctx context.Context, name string) ([]string, error)
 	SearchNotes(ctx context.Context, query, tag string) ([]NoteHit, error)
+	GetOwnerProfile(ctx context.Context) (string, error)
+	UpdateOwnerProfile(ctx context.Context, content, mode string) error
 }
 
 // DispatchStore captures the session + audit-log dependency. Real impl is

@@ -94,6 +94,11 @@ type fakeExec struct {
 	note      *NoteView
 	backlinks []string
 	noteHits  []NoteHit
+
+	ownerProfile     string // returned by GetOwnerProfile
+	ownerProfileErr  error  // returned by GetOwnerProfile when set
+	updatedProfile   string // captured by UpdateOwnerProfile
+	updatedProfileMd string // captured mode
 }
 
 type coworkSearchCall struct {
@@ -256,6 +261,16 @@ func (f *fakeExec) Backlinks(ctx context.Context, name string) ([]string, error)
 }
 func (f *fakeExec) SearchNotes(ctx context.Context, query, tag string) ([]NoteHit, error) {
 	return f.noteHits, nil
+}
+
+func (f *fakeExec) GetOwnerProfile(ctx context.Context) (string, error) {
+	return f.ownerProfile, f.ownerProfileErr
+}
+
+func (f *fakeExec) UpdateOwnerProfile(ctx context.Context, content, mode string) error {
+	f.updatedProfile = content
+	f.updatedProfileMd = mode
+	return nil
 }
 
 type updateProfileCall struct{ JID, Field, Value string }
