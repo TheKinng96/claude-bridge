@@ -23,8 +23,8 @@ import (
 	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/cowork"
-	"claude-bridge/internal/ownerprofile"
 	"claude-bridge/internal/knowledge"
+	"claude-bridge/internal/ownerprofile"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/store"
 )
