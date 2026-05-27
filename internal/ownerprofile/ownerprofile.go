@@ -52,3 +52,27 @@ func (s *Store) Read() (string, error) {
 	}
 	return string(data), nil
 }
+
+// Write stores content. mode "append" appends after a newline separator; any
+// other value (including "" and "replace") overwrites. Creates the vault
+// directory and file if missing.
+func (s *Store) Write(content, mode string) error {
+	if !s.Enabled() {
+		return ErrDisabled
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return err
+	}
+	if mode == "append" {
+		existing, err := os.ReadFile(s.path())
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if len(existing) > 0 {
+			content = string(existing) + "\n" + content
+		}
+	}
+	return os.WriteFile(s.path(), []byte(content), 0o644)
+}

@@ -42,3 +42,54 @@ func TestDisabled(t *testing.T) {
 		t.Fatalf("disabled Read: want ErrDisabled, got %v", err)
 	}
 }
+
+func TestWrite_ReplaceCreatesFileAndDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Vault") // not yet created
+	s := New(dir)
+	if err := s.Write("first", "replace"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Read()
+	if got != "first" {
+		t.Fatalf("want %q got %q", "first", got)
+	}
+	if err := s.Write("second", "replace"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.Read()
+	if got != "second" {
+		t.Fatalf("replace: want %q got %q", "second", got)
+	}
+}
+
+func TestWrite_Append(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Write("line1", "replace"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write("line2", "append"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Read()
+	if got != "line1\nline2" {
+		t.Fatalf("append: want %q got %q", "line1\nline2", got)
+	}
+}
+
+func TestWrite_DefaultModeIsReplace(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.Write("a", "replace")
+	if err := s.Write("b", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Read()
+	if got != "b" {
+		t.Fatalf("empty mode should replace: got %q", got)
+	}
+}
+
+func TestWrite_Disabled(t *testing.T) {
+	if err := New("").Write("x", "replace"); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("disabled Write: want ErrDisabled, got %v", err)
+	}
+}
