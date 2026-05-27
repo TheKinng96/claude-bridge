@@ -23,7 +23,7 @@ var ErrDisabled = errors.New("ownerprofile: no vault configured")
 // unconditionally (mirrors folderread.Root).
 type Store struct {
 	dir string
-	mu  sync.Mutex
+	mu  sync.RWMutex
 }
 
 // New returns a Store rooted at vaultDir. Empty vaultDir → disabled Store.
@@ -41,8 +41,8 @@ func (s *Store) Read() (string, error) {
 	if !s.Enabled() {
 		return "", ErrDisabled
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	data, err := os.ReadFile(s.path())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

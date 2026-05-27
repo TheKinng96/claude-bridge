@@ -1,6 +1,7 @@
 package ownerprofile
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,7 +38,7 @@ func TestDisabled(t *testing.T) {
 	if s.Enabled() {
 		t.Fatal("empty path should be disabled")
 	}
-	if _, err := s.Read(); err == nil {
-		t.Fatal("disabled Read should error")
+	if _, err := s.Read(); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("disabled Read: want ErrDisabled, got %v", err)
 	}
 }
