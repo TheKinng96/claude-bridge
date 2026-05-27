@@ -24,3 +24,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Claude Code local worktrees (separate git checkouts; never commit)
+.claude/worktrees/
