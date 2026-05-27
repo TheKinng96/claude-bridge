@@ -23,6 +23,7 @@ import (
 	"claude-bridge/internal/connectors/telegram"
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/cowork"
+	"claude-bridge/internal/ownerprofile"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/store"
@@ -43,6 +44,7 @@ type Server struct {
 	knowWatcher   *knowledge.Watcher
 	knowEmbedder  *knowledge.Embedder // nil if Ollama not available
 	cowork        *cowork.Root        // nil-safe via Enabled(); cowork output folder
+	ownerProfile  *ownerprofile.Store // nil-safe via Enabled(); shared profile note
 	agentRunner   agentRunner
 	tg            *telegram.Client // nil if not configured
 	tgReloader    func() error     // optional: called after agent config POST to live-reload Telegram
@@ -125,6 +127,13 @@ func (s *Server) SetEmbedder(e *knowledge.Embedder) {
 // routines can learn where to write today's files.
 func (s *Server) SetCowork(c *cowork.Root) {
 	s.cowork = c
+}
+
+// SetOwnerProfile attaches the owner-profile store. Used by the
+// /api/owner-profile endpoint (and the get_owner_profile / update_owner_profile
+// MCP tools) so the Cowork app can read and update the shared profile.
+func (s *Server) SetOwnerProfile(st *ownerprofile.Store) {
+	s.ownerProfile = st
 }
 
 // SetUpdateReady signals that a new binary has been downloaded and is ready to apply.
@@ -364,6 +373,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
 	mux.HandleFunc("/api/documents/unindexed-count", s.handleDocumentsUnindexedCount)
 	mux.HandleFunc("/api/cowork/folder", s.handleCoworkFolder)
+	mux.HandleFunc("/api/owner-profile", s.handleOwnerProfile)
 
 	// Self-update status + restart
 	mux.HandleFunc("/api/update/status", s.handleUpdateStatus)
@@ -516,6 +526,44 @@ func (s *Server) handleCoworkFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "path": dir})
+}
+
+// handleOwnerProfile reads (GET) or writes (POST) the shared owner profile.
+// POST body: {"content": "...", "mode": "replace"|"append"}.
+func (s *Server) handleOwnerProfile(w http.ResponseWriter, r *http.Request) {
+	if s.ownerProfile == nil || !s.ownerProfile.Enabled() {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "owner profile disabled — set an Obsidian vault path (or knowledge folder) first"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		content, err := s.ownerProfile.Read()
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": true, "content": content})
+	case http.MethodPost:
+		var body struct {
+			Content string `json:"content"`
+			Mode    string `json:"mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": "bad request body"})
+			return
+		}
+		if strings.TrimSpace(body.Content) == "" {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": "content required"})
+			return
+		}
+		if err := s.ownerProfile.Write(body.Content, body.Mode); err != nil {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // handleWAAccounts returns the list of all WhatsApp accounts.
