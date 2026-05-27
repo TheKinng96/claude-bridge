@@ -512,6 +512,32 @@ func getTools() []tool {
 				},
 			},
 		},
+		{
+			Name:        "get_owner_profile",
+			Description: "Get the owner's shared profile/persona document. This is the same profile the Telegram dispatch bot uses as its role; call it at the start of a conversation to load the owner's context.",
+			InputSchema: inputSchema{
+				Type:       "object",
+				Properties: map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "update_owner_profile",
+			Description: "Update the owner's shared profile/persona document. Use 'replace' (default) to overwrite with the full new text, or 'append' to add to it. This profile is read by the Telegram dispatch bot and editable in Obsidian.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "The profile text to save.",
+					},
+					"mode": map[string]interface{}{
+						"type":        "string",
+						"description": "'replace' (default) overwrites; 'append' adds to the existing profile.",
+					},
+				},
+				Required: []string{"content"},
+			},
+		},
 	}
 }
 
@@ -584,6 +610,11 @@ func (e *toolExecutor) execute(name string, args json.RawMessage) callToolResult
 	// Cowork
 	case "get_cowork_folder":
 		return e.getCoworkFolder(args)
+	// Owner profile
+	case "get_owner_profile":
+		return e.httpGet("/api/owner-profile")
+	case "update_owner_profile":
+		return e.updateOwnerProfile(args)
 	default:
 		return errorResult(fmt.Sprintf("Unknown tool: %s", name))
 	}
@@ -599,6 +630,27 @@ func (e *toolExecutor) getCoworkFolder(args json.RawMessage) callToolResult {
 		path += "?date=" + url.QueryEscape(params.Date)
 	}
 	return e.httpGet(path)
+}
+
+func (e *toolExecutor) updateOwnerProfile(args json.RawMessage) callToolResult {
+	var params struct {
+		Content string `json:"content"`
+		Mode    string `json:"mode"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return errorResult("invalid arguments: " + err.Error())
+	}
+	if strings.TrimSpace(params.Content) == "" {
+		return errorResult("content is required")
+	}
+	body, _ := json.Marshal(params)
+	resp, err := e.client.Post(e.baseURL+"/api/owner-profile", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return errorResult(fmt.Sprintf("Cannot reach Claude Bridge at %s — is the dashboard running?\nError: %v", e.baseURL, err))
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	return callToolResult{Content: []contentItem{{Type: "text", Text: string(out)}}}
 }
 
 func (e *toolExecutor) httpGet(path string) callToolResult {
