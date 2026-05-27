@@ -108,11 +108,11 @@ func (a *dispatchStoreAdapter) UpdateSessionSummary(ctx context.Context, session
 // dispatchExecutor implements agent.Executor by bridging Dispatcher actions to
 // the WhatsApp connector, batch queue, SQLite store, and profile extractor.
 type dispatchExecutor struct {
-	wa        *whatsapp.Manager
-	bq        *batch.Queue
-	store     *store.Store
-	extractor *profile.Extractor
-	obsidian  *obsidian.Writer // nil-safe — Writer methods no-op when path is empty
+	wa           *whatsapp.Manager
+	bq           *batch.Queue
+	store        *store.Store
+	extractor    *profile.Extractor
+	obsidian     *obsidian.Writer // nil-safe — Writer methods no-op when path is empty
 	cowork       *cowork.Root     // nil-safe via Enabled() — empty vault returns ErrDisabled
 	ownerProfile *ownerprofile.Store
 }

@@ -24,8 +24,8 @@ import (
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/cowork"
 	"claude-bridge/internal/knowledge"
-	"claude-bridge/internal/ownerprofile"
 	"claude-bridge/internal/mcp"
+	"claude-bridge/internal/ownerprofile"
 	"claude-bridge/internal/store"
 )
 
@@ -574,7 +574,7 @@ func (s *Server) handleWAAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	accounts := s.wa.GetAccounts()
 	writeJSON(w, map[string]interface{}{
-		"accounts": accounts,
+		"accounts":  accounts,
 		"qr_active": s.wa.QRActive(),
 		"qr_code":   s.wa.QRCode(),
 		"qr_error":  s.wa.QRError(),
@@ -844,11 +844,11 @@ func (s *Server) handleFBMessengerConversations(w http.ResponseWriter, r *http.R
 		contacts, lastSynced, err := s.store.GetCachedContacts(r.Context(), "facebook", "", limit)
 		if err == nil && len(contacts) > 0 {
 			writeJSON(w, map[string]interface{}{
-				"ok":           true,
+				"ok":            true,
 				"conversations": contacts,
-				"cached":       true,
-				"synced_at":    lastSynced,
-				"total":        len(contacts),
+				"cached":        true,
+				"synced_at":     lastSynced,
+				"total":         len(contacts),
 			})
 			return
 		}
@@ -860,11 +860,11 @@ func (s *Server) handleFBMessengerConversations(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":           true,
+		"ok":            true,
 		"conversations": conversations,
-		"cached":       false,
-		"synced_at":    time.Now(),
-		"total":        len(conversations),
+		"cached":        false,
+		"synced_at":     time.Now(),
+		"total":         len(conversations),
 	})
 }
 
@@ -1093,13 +1093,13 @@ func (s *Server) handleFBMessengerAnalytics(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"ok":              true,
-		"total_posts":     len(posts),
-		"total_likes":     totalLikes,
-		"total_comments":  totalComments,
-		"total_shares":    totalShares,
-		"avg_engagement":  avgEngagement,
-		"synced_at":       lastSynced,
+		"ok":             true,
+		"total_posts":    len(posts),
+		"total_likes":    totalLikes,
+		"total_comments": totalComments,
+		"total_shares":   totalShares,
+		"avg_engagement": avgEngagement,
+		"synced_at":      lastSynced,
 	})
 }
 
