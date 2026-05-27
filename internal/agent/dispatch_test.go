@@ -985,3 +985,38 @@ func TestRun_NoProfile_SystemPromptUnchanged(t *testing.T) {
 		t.Fatalf("empty profile should not inject a profile block; got:\n%s", runner.lastS)
 	}
 }
+
+func TestRun_GetOwnerProfile(t *testing.T) {
+	runner := &fakeClaude{reply: `{"action":"get_owner_profile","params":{},"user_reply":"Here it is:"}`}
+	ex := &fakeExec{ownerProfile: "Dad, formal tone."}
+	d := NewDispatcher(runner, ex, nil)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "show my profile"})
+	if res.Action != ActionGetOwnerProfile {
+		t.Fatalf("action: got %v", res.Action)
+	}
+	if !strings.Contains(res.UserReply, "Dad, formal tone.") {
+		t.Fatalf("reply missing profile: %q", res.UserReply)
+	}
+}
+
+func TestRun_UpdateOwnerProfile(t *testing.T) {
+	runner := &fakeClaude{reply: `{"action":"update_owner_profile","params":{"content":"New bio","mode":"replace"},"user_reply":"Saved."}`}
+	ex := &fakeExec{}
+	d := NewDispatcher(runner, ex, nil)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "set my profile to New bio"})
+	if res.Action != ActionUpdateOwnerProfile {
+		t.Fatalf("action: got %v", res.Action)
+	}
+	if ex.updatedProfile != "New bio" || ex.updatedProfileMd != "replace" {
+		t.Fatalf("not written: %q / %q", ex.updatedProfile, ex.updatedProfileMd)
+	}
+}
+
+func TestRun_UpdateOwnerProfileRequiresContent(t *testing.T) {
+	runner := &fakeClaude{reply: `{"action":"update_owner_profile","params":{"content":""},"user_reply":"ok"}`}
+	d := NewDispatcher(runner, &fakeExec{}, nil)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram", OwnerID: "1", Message: "x"})
+	if !strings.Contains(res.UserReply, "failed") {
+		t.Fatalf("expected failure note, got %q", res.UserReply)
+	}
+}

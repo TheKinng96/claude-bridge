@@ -34,9 +34,11 @@ const (
 	ActionReadKB         Action = "read_kb"
 	ActionReadNote       Action = "read_note"
 	ActionBacklinks      Action = "backlinks"
-	ActionSearchNotes    Action = "search_notes"
-	ActionRecallMemory   Action = "recall_memory"
-	ActionReply          Action = "reply"
+	ActionSearchNotes        Action = "search_notes"
+	ActionRecallMemory       Action = "recall_memory"
+	ActionGetOwnerProfile    Action = "get_owner_profile"
+	ActionUpdateOwnerProfile Action = "update_owner_profile"
+	ActionReply              Action = "reply"
 )
 
 // ClaudeRunner is the subset of *claude.Client used by the dispatcher.
@@ -237,7 +239,7 @@ const dispatchSystemPrompt = `You are the owner's dispatch agent. The owner mess
 Respond with ONE JSON object only — no preamble, no markdown fences. Schema:
 
 {
-  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "create_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "recall_memory" | "reply",
+  "action": "send_whatsapp" | "broadcast_whatsapp" | "search_kb" | "list_pending" | "summary_inbox" | "list_contacts" | "get_profile" | "update_profile" | "extract_profile" | "list_cowork" | "read_cowork" | "search_cowork" | "edit_cowork" | "create_cowork" | "cowork_path" | "list_kb" | "read_kb" | "read_note" | "backlinks" | "search_notes" | "recall_memory" | "get_owner_profile" | "update_owner_profile" | "reply",
   "params": { ... },
   "user_reply": "Short status to send back to the owner (1-2 sentences).",
   "continue": false
@@ -273,6 +275,8 @@ Action params:
 - backlinks: {"name": "Tan Policy"} — list notes that link TO the named note.
 - search_notes: {"query": "renewal", "tag": "vip"} — search Obsidian notes by text and/or #tag (at least one). Empty query with a tag lists all notes carrying that tag.
 - recall_memory: {"query": "tan policy renewal"} — search summaries of your PAST conversations with this owner for relevant context. Use when the owner refers to something discussed earlier that isn't in the recent turns above. ALWAYS set "continue": true on recall_memory so you can read the results and answer the owner in your own words with a follow-up "reply".
+- get_owner_profile: {} — return the owner's saved profile/persona document.
+- update_owner_profile: {"content": "...", "mode": "replace" | "append"} — save the owner's profile (mode defaults to replace). Use when the owner asks to set/update their profile. To edit, first get_owner_profile (continue:true), merge, then update_owner_profile with the full new text.
 - reply: {} — just chat, no side effect.
 
 Rules:
@@ -283,7 +287,7 @@ Rules:
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
 // sync with dispatchSystemPrompt schema.
-const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, create_cowork, cowork_path, list_kb, read_kb, read_note, backlinks, search_notes, recall_memory, reply`
+const actionCatalog = `send_whatsapp, broadcast_whatsapp, search_kb, list_pending, summary_inbox, list_contacts, get_profile, update_profile, extract_profile, list_cowork, read_cowork, search_cowork, edit_cowork, create_cowork, cowork_path, list_kb, read_kb, read_note, backlinks, search_notes, recall_memory, get_owner_profile, update_owner_profile, reply`
 
 // sessionGap: messages this far apart or more start a new session.
 const sessionGap = time.Hour
@@ -951,6 +955,36 @@ func (d *Dispatcher) execute(ctx context.Context, in DispatchInput, p *dispatchP
 			fmt.Fprintf(&sb, "\n• %s: %s", h.Note, h.Snippet)
 		}
 		return strings.TrimSpace(sb.String()), nil
+
+	case ActionGetOwnerProfile:
+		profile, err := d.Exec.GetOwnerProfile(ctx)
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(profile) == "" {
+			return "(no profile set yet)", nil
+		}
+		return "\n" + profile, nil
+
+	case ActionUpdateOwnerProfile:
+		var args struct {
+			Content string `json:"content"`
+			Mode    string `json:"mode"`
+		}
+		if err := json.Unmarshal(p.Params, &args); err != nil {
+			return "", fmt.Errorf("update_owner_profile params: %w", err)
+		}
+		if strings.TrimSpace(args.Content) == "" {
+			return "", errors.New("update_owner_profile: content required")
+		}
+		if err := d.Exec.UpdateOwnerProfile(ctx, args.Content, args.Mode); err != nil {
+			return "", err
+		}
+		mode := args.Mode
+		if mode == "" {
+			mode = "replace"
+		}
+		return "(profile " + mode + "d)", nil
 
 	default:
 		return "", fmt.Errorf("unknown action %q", p.Action)
