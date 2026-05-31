@@ -499,18 +499,19 @@ func parseDispatch(raw string) (*dispatchPayload, error) {
 	s = strings.TrimSuffix(s, "```")
 	s = strings.TrimSpace(s)
 
-	// If there's still prefix junk, find the first { and last } to slice the
-	// JSON region.
+	// Trim leading non-JSON prefix.
 	if !strings.HasPrefix(s, "{") {
-		start := strings.Index(s, "{")
-		end := strings.LastIndex(s, "}")
-		if start >= 0 && end > start {
-			s = s[start : end+1]
+		if i := strings.Index(s, "{"); i >= 0 {
+			s = s[i:]
 		}
 	}
 
+	// Use json.Decoder so trailing prose after the closing brace doesn't
+	// error — Claude sometimes appends "After this I'll …" after a valid
+	// payload. Decoder.Decode reads one value and stops.
 	var p dispatchPayload
-	if err := json.Unmarshal([]byte(s), &p); err != nil {
+	dec := json.NewDecoder(strings.NewReader(s))
+	if err := dec.Decode(&p); err != nil {
 		return nil, fmt.Errorf("parse JSON: %w", err)
 	}
 	if p.Action == "" {
