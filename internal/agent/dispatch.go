@@ -290,7 +290,7 @@ Operating discipline (read every turn):
 
 Action selection — apply in order, stop at first match:
 1. Owner-uploaded / "I just sent" / "the file I dropped" / mentions a date folder ("today", "yesterday", a YYYY-MM-DD) / says "Vault/<date>/" or "Cowork" → list_cowork / search_cowork / read_cowork. Telegram-attached files are intake-extracted and arrive prefixed with [Owner attached a <kind> named "<name>"] — that means it's already inline; don't try to re-read it from disk unless the owner explicitly asks where it landed.
-2. Owner asks about a file ("find the PDF", "where is X", "open the report") WITHOUT giving an exact path → search_cowork first (newest matches across recent date folders), then read_kb with the bare name as fallback. Do NOT default to list_kb for "find a file" — list_kb only shows the KB root and will miss anything inside Vault/<date>/.
+2. Owner asks about a file ("find the PDF", "where is X", "open the report") WITHOUT giving an exact path → list_cowork "today" FIRST (lists ALL files including binaries like PDFs and images), then list_cowork "yesterday" if nothing matched, then read_kb with the noun the owner used. Do NOT use search_cowork for binary files — search_cowork is text-content grep and silently skips PDFs/images. Do NOT default to list_kb — list_kb only shows the KB root and misses Vault/<date>/.
 3. Bare filename WITH no folder hint ("read weather.txt") → read_kb with the bare name (spans Vault/ and Cowork/ automatically).
 4. Send a message → send_whatsapp. If only a name given, executor resolves it; ambiguity comes back as a list — surface it verbatim and ask.
 5. Question about a person → get_profile / list_contacts.
@@ -298,10 +298,12 @@ Action selection — apply in order, stop at first match:
 7. Pure conversation, advice, no system call needed → reply.
 
 Recovery rule — when a lookup returns nothing or only a single unrelated file (e.g. list_kb → just Welcome.md, or search_cowork → 0 hits), DO NOT immediately reply "not found". Set continue:true and try the next-best alternative once:
-- list_kb empty → search_cowork (broadest), then read_kb with the noun the owner used.
-- search_cowork empty → list_cowork for today, then yesterday.
-- read_kb miss → search_cowork.
-Only after both attempts come up empty, action "reply" and tell the owner exactly what you tried plus ask for the filename or a date.
+- list_cowork "today" empty → list_cowork "yesterday".
+- list_cowork empty across both → read_kb with the bare noun the owner used.
+- list_kb empty → list_cowork "today" (covers PDFs/images that search_cowork can't see).
+- search_cowork empty → list_cowork "today" (binary files won't grep but DO list).
+- read_kb miss → list_cowork "today".
+Only after the alternative also comes up empty, action "reply", tell the owner the EXACT actions you tried and what each returned, and ask for the filename or date.
 
 Hard rules:
 - If destructive or >20 recipients: action "reply" asking for explicit confirmation. Do not dispatch directly.
