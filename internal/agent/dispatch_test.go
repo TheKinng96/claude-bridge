@@ -882,12 +882,13 @@ func TestRunChainsReadThenSend(t *testing.T) {
 	if len(ex.sendCalls) != 1 {
 		t.Fatalf("want 1 send, got %d", len(ex.sendCalls))
 	}
-	// Final reply is the last action's message, with the action trail appended.
+	// Final reply is the last action's message. The action trail is debug-only
+	// (logged, not surfaced to the owner) so it must NOT appear in the reply.
 	if !strings.Contains(res.UserReply, "Messaged Alice") {
 		t.Fatalf("unexpected final reply %q", res.UserReply)
 	}
-	if !strings.Contains(res.UserReply, "read_kb → send_whatsapp") {
-		t.Fatalf("expected action trail in reply, got %q", res.UserReply)
+	if strings.Contains(res.UserReply, "→") || strings.Contains(res.UserReply, "read_kb") {
+		t.Fatalf("action trail must not leak into reply: %q", res.UserReply)
 	}
 	// Two Claude calls (one per step).
 	if c.calls != 2 {
