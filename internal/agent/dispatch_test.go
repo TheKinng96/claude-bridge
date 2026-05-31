@@ -475,17 +475,42 @@ func TestRun_ListPendingDispatches(t *testing.T) {
 	}
 }
 
-func TestRun_MalformedJSONFallsBackToReply(t *testing.T) {
+func TestRun_MalformedJSONReturnsGenericReply(t *testing.T) {
+	// Raw subprocess output (action JSON, chain transcripts, free-form Claude
+	// chatter that didn't parse) must NEVER leak to the owner. The dispatcher
+	// substitutes a generic recovery line and stashes the raw output in the
+	// server log instead.
 	d, _, ex, _ := newTestDispatcher(`oh hi I am claude. action is reply.`)
 	res := d.Run(context.Background(), DispatchInput{})
 	if res.Action != ActionReply {
 		t.Errorf("action=%s", res.Action)
 	}
-	if !strings.Contains(res.UserReply, "claude") {
-		t.Errorf("fallback should preserve raw text: %s", res.UserReply)
+	if strings.Contains(res.UserReply, "claude") {
+		t.Errorf("raw model text must not leak: %q", res.UserReply)
+	}
+	if res.UserReply == "" {
+		t.Error("user_reply must not be empty on parse failure")
 	}
 	if len(ex.sendCalls) != 0 {
 		t.Errorf("malformed must not invoke executor")
+	}
+}
+
+func TestSanitizeReply_StripsTranscriptMarkers(t *testing.T) {
+	in := "Sent to Ana.\nTool result:\nFiles: [Welcome.md]\nYou: {\"action\":\"reply\"}"
+	if got := sanitizeReply(in); got != "Sent to Ana." {
+		t.Errorf("sanitizeReply did not strip transcript: %q", got)
+	}
+}
+
+func TestSanitizeReply_ReplacesPureJSON(t *testing.T) {
+	in := `{"action":"reply","user_reply":"hi"}`
+	got := sanitizeReply(in)
+	if strings.Contains(got, "action") || strings.HasPrefix(strings.TrimSpace(got), "{") {
+		t.Errorf("pure-JSON reply leaked: %q", got)
+	}
+	if got == "" {
+		t.Error("sanitizeReply must substitute non-empty fallback")
 	}
 }
 
