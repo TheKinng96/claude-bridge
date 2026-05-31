@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -284,7 +285,8 @@ Rules:
 1. If the owner asks for something destructive or large-scale (>20 recipients), reply with action "reply" and ask for explicit confirmation. Do not dispatch directly.
 2. Never invent phone numbers or JIDs. If the owner says "send to Alice" without a number, return action "reply" asking which number.
 3. Keep user_reply short. For a single action (continue false), the action's result is appended to your user_reply automatically — EXCEPT send_whatsapp, where nothing is appended, so write user_reply as the complete past-tense confirmation, e.g. "Sent to Ana (60123456789).". For a continue:true chain, intermediate user_reply text is NOT sent — only your final "reply" message reaches the owner.
-4. If unsure which action fits, default to "reply" with your best guess at help text.`
+4. Routing for owner-uploaded files: when the owner mentions a file they just sent, dropped in "today"/"yesterday"/a date folder, put inside Cowork or under "Vault/<date>/", or attached to chat — ALWAYS use list_cowork / search_cowork / read_cowork FIRST. list_kb is for the curated shared knowledge-base only; it will NOT find files in Cowork date folders. Never call list_kb twice in a row.
+5. If unsure which action fits, default to "reply" with your best guess at help text.`
 
 // actionCatalog is included in the user prompt for quick reference. Keep in
 // sync with dispatchSystemPrompt schema.
@@ -397,9 +399,11 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		)
 	}
 
-	// Append a compact action trail only when the turn chained 2+ actions.
+	// Action trail is debug-only — never appended to the owner-facing reply.
+	// The audit log row carries the final action; we log the chain here for
+	// developer triage of multi-step turns.
 	if len(trail) > 1 {
-		res.UserReply = strings.TrimSpace(res.UserReply) + "\n· " + strings.Join(trail, " → ")
+		log.Printf("[dispatch] trail (%s/%s): %s", in.Channel, in.OwnerID, strings.Join(trail, " → "))
 	}
 
 	d.logAsync(ctx, in, res, time.Since(start), sess.ID)
