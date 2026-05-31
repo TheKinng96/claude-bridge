@@ -110,7 +110,10 @@ func (c *Client) Reply(ctx context.Context, systemPrompt, conversation string) (
 	claudeBin := c.claudeBin
 	c.mu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// 30s was too tight for Sonnet on long inputs (e.g. an extracted PDF body
+	// in the dispatcher prompt). 120s keeps Telegram's typing indicator happy
+	// while leaving headroom for big attachments.
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	prompt := systemPrompt + "\n\n" + conversation

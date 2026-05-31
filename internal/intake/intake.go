@@ -39,8 +39,10 @@ type VisionDescriber interface {
 const maxAttachmentBytes = 20 * 1024 * 1024
 
 // maxExtractedChars caps the text fed to the dispatcher so the Claude prompt
-// stays under a sane size. Tail is dropped with a marker.
-const maxExtractedChars = 40_000
+// stays under a sane size. Tail is dropped with a marker. 8k is enough for
+// routing decisions and a short summary; bigger PDFs blew past the 30-120s
+// Reply timeout when Sonnet had to chew through them.
+const maxExtractedChars = 8_000
 
 // ExtractMessage inspects m and returns the text the dispatcher should see.
 // Returns (text, ok). When ok is false, the caller should reply to the owner
