@@ -954,6 +954,18 @@ func main() {
 	// new date folders are picked up on the next Rescan.
 	srv.SetCowork(coworkRoot)
 	srv.SetOwnerProfile(ownerProfileStore)
+	srv.SetDispatchProbe(func(ctx context.Context, channel, ownerID, message string) server.DispatchProbeReply {
+		res := dispatcher.Run(ctx, agent.DispatchInput{
+			Channel: channel,
+			OwnerID: ownerID,
+			Message: message,
+		})
+		return server.DispatchProbeReply{
+			Action:    string(res.Action),
+			UserReply: res.UserReply,
+			Error:     res.Error,
+		}
+	})
 	if coworkRoot.Enabled() {
 		if _, err := coworkRoot.EnsureToday(); err != nil {
 			log.Printf("[cowork] ensure today folder: %v", err)

@@ -20,7 +20,7 @@ VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null || echo 
 LDFLAGS_REL := -ldflags "-X main.version=$(VERSION)"
 LOGFILE     := claude-bridge.log
 
-.PHONY: build run restart stop update test tidy clean release version
+.PHONY: build run restart stop update test tidy clean release version probe
 
 # Dev build. Leaves main.version = "dev", which disables the self-updater —
 # the right default for a machine without an Apple Developer ID.
@@ -53,6 +53,17 @@ update:
 
 test:
 	$(CGO) go test ./...
+
+# Loop the dispatcher with the canonical "i put a pdf …" probe message until
+# the reply looks healthy (or N attempts in). MSG / RETRIES env vars override.
+# Bridge must already be running (make restart / make run).
+probe:
+	@MSG="$${MSG:-i put a pdf in the knowledge base, can you read it?}"; \
+	RETRIES="$${RETRIES:-3}"; \
+	echo ">> probe (retries=$$RETRIES): $$MSG"; \
+	curl -sS -X POST http://localhost:10002/api/dispatch/test \
+	  -H 'Content-Type: application/json' \
+	  -d "{\"message\":\"$$MSG\",\"retries\":$$RETRIES}" | python3 -m json.tool
 
 tidy:
 	go mod tidy
