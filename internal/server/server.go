@@ -49,6 +49,7 @@ type Server struct {
 	agentRunner   agentRunner
 	tg            *telegram.Client // nil if not configured
 	tgReloader    func() error     // optional: called after agent config POST to live-reload Telegram
+	dispatchProbe DispatchProbeFunc // optional: handler for /api/dispatch/test
 	updateReady   bool
 	port          int
 	listener      net.Listener
@@ -74,6 +75,22 @@ func (s *Server) SetTelegram(c *telegram.Client) { s.tg = c }
 // after writing new Telegram fields so the long-poll restarts with fresh
 // token + allowlist instead of requiring a process restart.
 func (s *Server) SetTelegramReloader(f func() error) { s.tgReloader = f }
+
+// DispatchProbeReply is what the /api/dispatch/test endpoint surfaces per
+// attempt. Plain strings keep the server package free of an agent dependency.
+type DispatchProbeReply struct {
+	Action    string `json:"action"`
+	UserReply string `json:"user_reply"`
+	Error     string `json:"error,omitempty"`
+}
+
+// DispatchProbeFunc runs ONE dispatcher turn for the test endpoint. main.go
+// wires this to dispatcher.Run via a thin adapter so server.go avoids
+// importing the agent package.
+type DispatchProbeFunc func(ctx context.Context, channel, ownerID, message string) DispatchProbeReply
+
+// SetDispatchProbe registers the dispatcher-run callback for /api/dispatch/test.
+func (s *Server) SetDispatchProbe(f DispatchProbeFunc) { s.dispatchProbe = f }
 
 // BatchQueue exposes the batch queue so other subsystems (dispatch executor)
 // can submit jobs directly without going through the HTTP layer.
@@ -374,6 +391,7 @@ func (s *Server) buildMux() http.Handler {
 	mux.HandleFunc("/api/documents/rescan", s.handleDocumentsRescan)
 	mux.HandleFunc("/api/documents/unindexed-count", s.handleDocumentsUnindexedCount)
 	mux.HandleFunc("/api/cowork/folder", s.handleCoworkFolder)
+	mux.HandleFunc("/api/dispatch/test", s.handleDispatchTest)
 	mux.HandleFunc("/api/owner-profile", s.handleOwnerProfile)
 
 	// Self-update status + restart
@@ -527,6 +545,99 @@ func (s *Server) handleCoworkFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "path": dir})
+}
+
+// handleDispatchTest exercises the dispatcher with a probe message and retries
+// until the reply looks healthy (no parse-fallback line, no "not found"-style
+// give-up). Used for iterative tuning of the system prompt without going
+// through Telegram.
+//
+// POST body:
+//
+//	{
+//	  "message":  "i put a pdf in the knowledge base, can you read it?",  // default
+//	  "retries":  3,            // default 3, max 8
+//	  "channel":  "probe",      // default "probe"
+//	  "owner_id": "probe"       // default "probe"
+//	}
+//
+// Returns: {ok, attempts: [...DispatchProbeReply], healthy: bool, final: DispatchProbeReply}.
+func (s *Server) handleDispatchTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.dispatchProbe == nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "dispatcher not wired"})
+		return
+	}
+	body := struct {
+		Message string `json:"message"`
+		Retries int    `json:"retries"`
+		Channel string `json:"channel"`
+		OwnerID string `json:"owner_id"`
+	}{}
+	if r.Method == http.MethodPost {
+		// Tolerate empty bodies — defaults below cover everything.
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	if body.Message == "" {
+		body.Message = "i put a pdf in the knowledge base, can you read it?"
+	}
+	if body.Channel == "" {
+		body.Channel = "probe"
+	}
+	if body.OwnerID == "" {
+		body.OwnerID = "probe"
+	}
+	if body.Retries <= 0 {
+		body.Retries = 3
+	}
+	if body.Retries > 8 {
+		body.Retries = 8
+	}
+
+	attempts := make([]DispatchProbeReply, 0, body.Retries)
+	var last DispatchProbeReply
+	healthy := false
+	for i := 0; i < body.Retries; i++ {
+		last = s.dispatchProbe(r.Context(), body.Channel, body.OwnerID, body.Message)
+		attempts = append(attempts, last)
+		if dispatchProbeHealthy(last) {
+			healthy = true
+			break
+		}
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok":       true,
+		"healthy":  healthy,
+		"attempts": attempts,
+		"final":    last,
+	})
+}
+
+// dispatchProbeHealthy is the loop's "did we get a useful answer?" check.
+// Tweak the markers list as new give-up phrasings surface.
+func dispatchProbeHealthy(r DispatchProbeReply) bool {
+	if r.Error != "" {
+		return false
+	}
+	low := strings.ToLower(r.UserReply)
+	for _, bad := range []string{
+		"not found",
+		"no pdf",
+		"didn't find",
+		"couldn't find",
+		"could not find",
+		"sideways on my end",
+		"dispatch failed",
+		"i'm not sure what",
+	} {
+		if strings.Contains(low, bad) {
+			return false
+		}
+	}
+	return true
 }
 
 // handleOwnerProfile reads (GET) or writes (POST) the shared owner profile.
