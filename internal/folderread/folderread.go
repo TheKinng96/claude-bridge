@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"claude-bridge/internal/docextract"
 )
 
 // MaxReadBytes caps file reads. It is larger than Telegram's 4096-char message
@@ -186,6 +188,15 @@ func (r *Root) Read(rel string) (string, *Entry, error) {
 		IsText:  isTextExt(filepath.Ext(info.Name())),
 	}
 	if !e.IsText {
+		if docextract.Supported(full) {
+			text, ok, err := docextract.Extract(full)
+			if err != nil {
+				return fmt.Sprintf("[%s: extraction failed — %v]", e.Name, err), e, nil
+			}
+			if ok {
+				return text, e, nil
+			}
+		}
 		return fmt.Sprintf("[binary file %s, %d bytes — not shown]", e.Name, e.Size), e, nil
 	}
 	data, err := os.ReadFile(full)
