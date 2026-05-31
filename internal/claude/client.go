@@ -110,10 +110,11 @@ func (c *Client) Reply(ctx context.Context, systemPrompt, conversation string) (
 	claudeBin := c.claudeBin
 	c.mu.RUnlock()
 
-	// 30s was too tight for Sonnet on long inputs (e.g. an extracted PDF body
-	// in the dispatcher prompt). 120s keeps Telegram's typing indicator happy
-	// while leaving headroom for big attachments.
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	// Sonnet 4.6 routinely runs 60-90s on dispatcher prompts that bundle an
+	// extracted PDF + recent session history. Measured 73s wall on an 8k
+	// payload locally, so 120s left no headroom. 240s gives margin for
+	// realistic worst case while still failing fast on a truly stuck CLI.
+	ctx, cancel := context.WithTimeout(ctx, 240*time.Second)
 	defer cancel()
 
 	prompt := systemPrompt + "\n\n" + conversation
