@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"claude-bridge/internal/docextract"
 )
 
 // FileEntry is one file inside a date folder.
@@ -173,6 +175,18 @@ func (r *Root) Read(filename string) (text string, entry *FileEntry, err error) 
 		return "", nil, err
 	}
 	if !entry.IsText {
+		// PDFs / DOCXs are "binary" by extension but readable via docextract.
+		// Returning extracted text lets the dispatcher answer questions about
+		// owner-dropped documents instead of bouncing back a placeholder.
+		if docextract.Supported(entry.Path) {
+			text, ok, err := docextract.Extract(entry.Path)
+			if err != nil {
+				return fmt.Sprintf("[%s: extraction failed — %v]", entry.Name, err), entry, nil
+			}
+			if ok {
+				return text, entry, nil
+			}
+		}
 		return fmt.Sprintf("[binary file %s, %d bytes — open via Obsidian or filesystem]", entry.Name, entry.Size), entry, nil
 	}
 	data, err := os.ReadFile(entry.Path)
