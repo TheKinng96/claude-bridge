@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1357,14 +1358,43 @@ func (s *Server) handleWASend(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Phone   string `json:"phone"`
 		Message string `json:"message"`
+		Image   string `json:"image,omitempty"`
 		FromJID string `json:"from_jid,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
 		return
 	}
-	if body.Phone == "" || body.Message == "" {
-		writeJSON(w, map[string]interface{}{"ok": false, "error": "phone and message required"})
+	if body.Phone == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "phone required"})
+		return
+	}
+	if body.Message == "" && body.Image == "" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "message or image required"})
+		return
+	}
+	if body.Image != "" {
+		path := body.Image
+		// Resolve cowork bare-name lookup if cowork is wired and the path
+		// isn't already absolute. Lets MCP callers pass "draft.png" the same
+		// way the dispatcher does.
+		if !filepath.IsAbs(path) && s.cowork != nil && s.cowork.Enabled() {
+			entry, err := s.cowork.Find(body.Image)
+			if err != nil {
+				writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+				return
+			}
+			if entry == nil {
+				writeJSON(w, map[string]interface{}{"ok": false, "error": "no cowork file matches " + body.Image})
+				return
+			}
+			path = entry.Path
+		}
+		if err := s.wa.SendImage(body.Phone, path, body.Message, body.FromJID); err != nil {
+			writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": true})
 		return
 	}
 	if err := s.wa.SendMessage(body.Phone, body.Message, body.FromJID); err != nil {

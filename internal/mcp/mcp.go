@@ -104,7 +104,7 @@ func getTools() []tool {
 		},
 		{
 			Name:        "send_whatsapp_message",
-			Description: "Send a WhatsApp message to a phone number. The phone number should be in international format without the + sign (e.g., '6281234567890' for Indonesia, '14155551234' for US).",
+			Description: "Send a WhatsApp message to a phone number. Phone format: international without + (e.g., '6281234567890'). Optionally attach an image via the 'image' field — pass a cowork bare filename (resolved against the cowork folder, last 14 days, newest wins) or an absolute file path; when image is set, 'message' becomes the caption. URLs included in plain message text are auto-rendered as link previews by WhatsApp clients.",
 			InputSchema: inputSchema{
 				Type: "object",
 				Properties: map[string]interface{}{
@@ -114,10 +114,14 @@ func getTools() []tool {
 					},
 					"message": map[string]interface{}{
 						"type":        "string",
-						"description": "The text message to send",
+						"description": "The text message to send. When 'image' is set, this becomes the image caption (may be empty).",
+					},
+					"image": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: image to attach. Cowork bare filename like 'draft.png' (resolved against the cowork folder), or 'YYYY-MM-DD/name.png', or an absolute path.",
 					},
 				},
-				Required: []string{"phone", "message"},
+				Required: []string{"phone"},
 			},
 		},
 		{
@@ -667,12 +671,16 @@ func (e *toolExecutor) sendMessage(args json.RawMessage) callToolResult {
 	var params struct {
 		Phone   string `json:"phone"`
 		Message string `json:"message"`
+		Image   string `json:"image,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return errorResult("Invalid arguments: need 'phone' and 'message'")
+		return errorResult("Invalid arguments: need 'phone' and 'message' (and optional 'image')")
 	}
-	if params.Phone == "" || params.Message == "" {
-		return errorResult("Both 'phone' and 'message' are required")
+	if params.Phone == "" {
+		return errorResult("'phone' is required")
+	}
+	if params.Message == "" && params.Image == "" {
+		return errorResult("Either 'message' or 'image' is required")
 	}
 
 	payload, _ := json.Marshal(params)
@@ -687,7 +695,11 @@ func (e *toolExecutor) sendMessage(args json.RawMessage) callToolResult {
 	json.Unmarshal(body, &result)
 
 	if ok, _ := result["ok"].(bool); ok {
-		return callToolResult{Content: []contentItem{{Type: "text", Text: fmt.Sprintf("Message sent to %s successfully.", params.Phone)}}}
+		kind := "Message"
+		if params.Image != "" {
+			kind = "Image"
+		}
+		return callToolResult{Content: []contentItem{{Type: "text", Text: fmt.Sprintf("%s sent to %s successfully.", kind, params.Phone)}}}
 	}
 	errMsg, _ := result["error"].(string)
 	return errorResult(fmt.Sprintf("Failed to send: %s", errMsg))

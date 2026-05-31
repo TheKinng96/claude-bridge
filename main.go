@@ -26,6 +26,7 @@ import (
 	"claude-bridge/internal/connectors/whatsapp"
 	"claude-bridge/internal/cowork"
 	"claude-bridge/internal/folderread"
+	"claude-bridge/internal/intake"
 	"claude-bridge/internal/knowledge"
 	"claude-bridge/internal/mcp"
 	"claude-bridge/internal/obsidian"
@@ -133,6 +134,24 @@ func (e *dispatchExecutor) syncObsidian(p *store.ClientProfile) {
 
 func (e *dispatchExecutor) SendWhatsAppMessage(ctx context.Context, phone, message, fromJID string) error {
 	return e.wa.SendMessage(phone, message, fromJID)
+}
+
+// SendWhatsAppImage resolves image as a cowork-folder lookup (bare filename or
+// "YYYY-MM-DD/name.png"), then sends the absolute file path via WhatsApp.
+// Mirrors read_cowork's path resolution so routine outputs can be sent without
+// the LLM needing to know absolute paths.
+func (e *dispatchExecutor) SendWhatsAppImage(ctx context.Context, phone, image, caption, fromJID string) error {
+	if e.cowork == nil || !e.cowork.Enabled() {
+		return fmt.Errorf("cowork folder not configured — set it on the Knowledge tab to attach images")
+	}
+	entry, err := e.cowork.Find(image)
+	if err != nil {
+		return fmt.Errorf("locate image %q: %w", image, err)
+	}
+	if entry == nil {
+		return fmt.Errorf("no cowork file matches %q", image)
+	}
+	return e.wa.SendImage(phone, entry.Path, caption, fromJID)
 }
 
 func (e *dispatchExecutor) BroadcastWhatsApp(ctx context.Context, recipients []string, message string) (string, error) {
@@ -699,7 +718,7 @@ func (e *dispatchExecutor) SearchNotes(ctx context.Context, query, tag string) (
 // bootTelegram constructs and starts a Telegram client from saved agent
 // config. Returns nil if no token is configured. The handler routes inbound
 // owner messages through the dispatcher.
-func bootTelegram(ctx context.Context, appStore *store.Store, dispatcher *agent.Dispatcher) *telegram.Client {
+func bootTelegram(ctx context.Context, appStore *store.Store, dispatcher *agent.Dispatcher, cl *claude.Client) *telegram.Client {
 	cfg, err := agent.LoadConfig(ctx, appStore)
 	if err != nil {
 		log.Printf("telegram: LoadConfig failed: %v", err)
@@ -737,10 +756,26 @@ func bootTelegram(ctx context.Context, appStore *store.Store, dispatcher *agent.
 		}()
 		defer close(stopTyping)
 
+		// Convert any attachment (PDF/photo/doc) into plain text the
+		// dispatcher can treat like a typed message. If extraction yields a
+		// direct reply (unsupported type, oversized file), short-circuit.
+		text, ok, err := intake.ExtractMessage(ctx, c, cl, m)
+		if err != nil {
+			log.Printf("telegram: intake failed: %v", err)
+			msg := err.Error()
+			if len(msg) > 120 {
+				msg = msg[:120] + "..."
+			}
+			return "Couldn't read that attachment — " + msg
+		}
+		if !ok {
+			return text
+		}
+
 		res := dispatcher.Run(ctx, agent.DispatchInput{
 			Channel: "telegram",
 			OwnerID: fmt.Sprintf("%d", m.From.ID),
-			Message: m.Text,
+			Message: text,
 		})
 		return res.UserReply
 	})
@@ -949,7 +984,7 @@ func main() {
 			// connection so a new getUpdates doesn't trip Conflict 409.
 			time.Sleep(300 * time.Millisecond)
 		}
-		c := bootTelegram(context.Background(), appStore, dispatcher)
+		c := bootTelegram(context.Background(), appStore, dispatcher, dispatchClient)
 		if c != nil {
 			srv.SetTelegram(c)
 			tgCurrent = c
@@ -959,7 +994,7 @@ func main() {
 	srv.SetTelegramReloader(restartTelegram)
 
 	// Initial boot from saved config.
-	if c := bootTelegram(context.Background(), appStore, dispatcher); c != nil {
+	if c := bootTelegram(context.Background(), appStore, dispatcher, dispatchClient); c != nil {
 		tgCurrent = c
 		srv.SetTelegram(c)
 	}

@@ -35,13 +35,88 @@ type Chat struct {
 	Type string `json:"type"`
 }
 
+// Document is an attached file (PDF, doc, csv, etc).
+type Document struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	FileName     string `json:"file_name"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// PhotoSize is one variant of a photo (Telegram delivers an array of sizes).
+type PhotoSize struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// Voice is a voice note.
+type Voice struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// Audio is a music/audio file.
+type Audio struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	MimeType     string `json:"mime_type"`
+	FileName     string `json:"file_name"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// Video is a video file.
+type Video struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	MimeType     string `json:"mime_type"`
+	FileName     string `json:"file_name"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// File is the result of getFile — gives a download path.
+type File struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	FileSize     int64  `json:"file_size"`
+	FilePath     string `json:"file_path"`
+}
+
 // Message is an inbound or outbound message (subset).
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	From      *User  `json:"from"`
-	Chat      Chat   `json:"chat"`
-	Date      int64  `json:"date"`
-	Text      string `json:"text"`
+	MessageID int64       `json:"message_id"`
+	From      *User       `json:"from"`
+	Chat      Chat        `json:"chat"`
+	Date      int64       `json:"date"`
+	Text      string      `json:"text"`
+	Caption   string      `json:"caption"`
+	Document  *Document   `json:"document"`
+	Photo     []PhotoSize `json:"photo"`
+	Voice     *Voice      `json:"voice"`
+	Audio     *Audio      `json:"audio"`
+	Video     *Video      `json:"video"`
+}
+
+// LargestPhoto returns the highest-resolution photo size, or nil if no photo.
+func (m *Message) LargestPhoto() *PhotoSize {
+	if len(m.Photo) == 0 {
+		return nil
+	}
+	best := &m.Photo[0]
+	for i := 1; i < len(m.Photo); i++ {
+		if m.Photo[i].FileSize > best.FileSize {
+			best = &m.Photo[i]
+		}
+	}
+	return best
 }
 
 // Update is one delta from getUpdates.
@@ -168,6 +243,56 @@ func (c *Client) SendChatAction(ctx context.Context, chatID int64, action string
 		OK bool `json:"ok"`
 	}
 	return c.call(ctx, "sendChatAction", body, &resp)
+}
+
+// GetFile resolves a file_id into a downloadable file_path via the Bot API.
+// The returned File.FilePath is then passed to DownloadFile.
+func (c *Client) GetFile(ctx context.Context, fileID string) (*File, error) {
+	body := map[string]any{"file_id": fileID}
+	var resp struct {
+		OK     bool  `json:"ok"`
+		Result *File `json:"result"`
+	}
+	if err := c.call(ctx, "getFile", body, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.OK || resp.Result == nil {
+		return nil, errors.New("getFile: empty response")
+	}
+	return resp.Result, nil
+}
+
+// DownloadFile fetches the raw bytes for filePath returned by GetFile.
+// Telegram serves files at https://api.telegram.org/file/bot<token>/<file_path>.
+func (c *Client) DownloadFile(ctx context.Context, filePath string) ([]byte, error) {
+	endpoint := fmt.Sprintf("%s/file/bot%s/%s", apiBase, c.token, filePath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloadFile: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("downloadFile: http %d: %s", res.StatusCode, truncate(string(raw), 200))
+	}
+	return io.ReadAll(res.Body)
+}
+
+// FetchAttachment is a convenience: GetFile + DownloadFile.
+func (c *Client) FetchAttachment(ctx context.Context, fileID string) ([]byte, *File, error) {
+	f, err := c.GetFile(ctx, fileID)
+	if err != nil {
+		return nil, nil, err
+	}
+	b, err := c.DownloadFile(ctx, f.FilePath)
+	if err != nil {
+		return nil, f, err
+	}
+	return b, f, nil
 }
 
 // SendPhoto uploads a local file as a photo to chatID with optional caption.

@@ -148,6 +148,7 @@ type NoteHit struct {
 // store + profile extractor; tests inject a stub.
 type Executor interface {
 	SendWhatsAppMessage(ctx context.Context, phone, message, fromJID string) error
+	SendWhatsAppImage(ctx context.Context, phone, image, caption, fromJID string) error
 	BroadcastWhatsApp(ctx context.Context, recipients []string, message string) (batchID string, err error)
 	SearchKB(ctx context.Context, query string, limit int) ([]KBHit, error)
 	ListPendingReplies(ctx context.Context) ([]PendingSummary, error)
@@ -254,7 +255,7 @@ straight to the owner. Always finish a multi-step task with action "reply".
 
 Action params:
 
-- send_whatsapp: {"phone": "60123456789", "name": "Alice", "message": "Hi Alice ..."} — single WhatsApp send. Provide EITHER phone OR name. If only a name is given (typical for the owner), the executor resolves it against contacts. Ambiguous matches come back with a list so you can ask the user which one to pick.
+- send_whatsapp: {"phone": "60123456789", "name": "Alice", "message": "Hi Alice ...", "image": "draft.png"} — single WhatsApp send. Provide EITHER phone OR name. If only a name is given (typical for the owner), the executor resolves it against contacts. Ambiguous matches come back with a list so you can ask the user which one to pick. Optional "image" attaches a file from the cowork folder (bare filename matches the last 14 days, newest wins; or "YYYY-MM-DD/name.png"); message becomes the image caption. Links in message are auto-previewed by WhatsApp — just include the URL in the text.
 - broadcast_whatsapp: {"recipients": ["60111...", "60222..."], "message": "..."} — paced bulk send via the batch queue.
 - search_kb: {"query": "policy renewal", "limit": 5} — search the knowledge base.
 - list_pending: {} — list pending replies awaiting owner review.
@@ -501,13 +502,14 @@ func (d *Dispatcher) execute(ctx context.Context, in DispatchInput, p *dispatchP
 			Phone   string `json:"phone"`
 			Name    string `json:"name"`
 			Message string `json:"message"`
+			Image   string `json:"image"`
 			FromJID string `json:"from_jid"`
 		}
 		if err := json.Unmarshal(p.Params, &args); err != nil {
 			return "", fmt.Errorf("send_whatsapp params: %w", err)
 		}
-		if args.Message == "" {
-			return "", errors.New("send_whatsapp: message required")
+		if args.Message == "" && args.Image == "" {
+			return "", errors.New("send_whatsapp: message or image required")
 		}
 		phone := args.Phone
 		display := args.Phone
@@ -545,6 +547,12 @@ func (d *Dispatcher) execute(ctx context.Context, in DispatchInput, p *dispatchP
 				sb.WriteString(")")
 				return sb.String(), nil
 			}
+		}
+		if args.Image != "" {
+			if err := d.Exec.SendWhatsAppImage(ctx, phone, args.Image, args.Message, args.FromJID); err != nil {
+				return "", err
+			}
+			return "(sent image to " + display + ")", nil
 		}
 		if err := d.Exec.SendWhatsAppMessage(ctx, phone, args.Message, args.FromJID); err != nil {
 			return "", err
