@@ -48,6 +48,7 @@ type fakeExec struct {
 	mu sync.Mutex
 
 	sendCalls           []sendCall
+	sendImageCalls      []sendImageCall
 	broadcastCalls      []broadcastCall
 	searchCalls         []searchCall
 	pendingCalls        int
@@ -130,6 +131,17 @@ func (f *fakeExec) SendWhatsAppMessage(ctx context.Context, phone, msg, fromJID 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sendCalls = append(f.sendCalls, sendCall{phone, msg, fromJID})
+	return f.sendErr
+}
+
+type sendImageCall struct {
+	Phone, Image, Caption, FromJID string
+}
+
+func (f *fakeExec) SendWhatsAppImage(ctx context.Context, phone, image, caption, fromJID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sendImageCalls = append(f.sendImageCalls, sendImageCall{phone, image, caption, fromJID})
 	return f.sendErr
 }
 
@@ -367,6 +379,43 @@ func TestRun_SendWhatsAppNoDuplicateStatus(t *testing.T) {
 	}
 	if res.UserReply != "Sent to Ana (60111)." {
 		t.Errorf("reply should equal model text, got %q", res.UserReply)
+	}
+}
+
+func TestRun_SendWhatsAppImage(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"send_whatsapp","params":{"phone":"60111","message":"see attached","image":"draft.png"},"user_reply":"Sent image."}`)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram"})
+	if res.Error != "" {
+		t.Fatalf("error: %s", res.Error)
+	}
+	if len(ex.sendCalls) != 0 {
+		t.Errorf("text send should NOT have fired when image is set: %+v", ex.sendCalls)
+	}
+	if len(ex.sendImageCalls) != 1 {
+		t.Fatalf("expected one image send, got %+v", ex.sendImageCalls)
+	}
+	c := ex.sendImageCalls[0]
+	if c.Phone != "60111" || c.Image != "draft.png" || c.Caption != "see attached" {
+		t.Errorf("image call args: %+v", c)
+	}
+}
+
+func TestRun_SendWhatsAppImage_EmptyCaptionAllowed(t *testing.T) {
+	d, _, ex, _ := newTestDispatcher(`{"action":"send_whatsapp","params":{"phone":"60111","image":"chart.png"},"user_reply":"Sent."}`)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram"})
+	if res.Error != "" {
+		t.Fatalf("error: %s", res.Error)
+	}
+	if len(ex.sendImageCalls) != 1 || ex.sendImageCalls[0].Caption != "" {
+		t.Errorf("expected image send with empty caption: %+v", ex.sendImageCalls)
+	}
+}
+
+func TestRun_SendWhatsApp_RejectsEmptyBoth(t *testing.T) {
+	d, _, _, _ := newTestDispatcher(`{"action":"send_whatsapp","params":{"phone":"60111"},"user_reply":"sending"}`)
+	res := d.Run(context.Background(), DispatchInput{Channel: "telegram"})
+	if res.Error == "" {
+		t.Fatal("expected error when neither message nor image given")
 	}
 }
 

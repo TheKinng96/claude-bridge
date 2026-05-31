@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -114,6 +115,45 @@ func (c *Client) Reply(ctx context.Context, systemPrompt, conversation string) (
 
 	prompt := systemPrompt + "\n\n" + conversation
 	cmd := exec.CommandContext(ctx, claudeBin, "--print", "--model", model)
+	cmd.Stdin = strings.NewReader(prompt)
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", claudeExitError(exitErr.ExitCode(), exitErr.Stderr, out)
+		}
+		return "", err
+	}
+	atomic.AddInt64(&c.apiCalls, 1)
+	return strings.TrimSpace(string(out)), nil
+}
+
+// DescribeImage asks Claude vision to describe the image at path. Used by the
+// Telegram intake pipeline so dispatched messages with photos arrive as text.
+// Returns a 2-4 sentence description plus any visible text (rough OCR).
+func (c *Client) DescribeImage(ctx context.Context, path string) (string, error) {
+	c.mu.RLock()
+	model := c.model
+	claudeBin := c.claudeBin
+	c.mu.RUnlock()
+	if claudeBin == "" {
+		return "", ErrNoAPIKey
+	}
+	if model == "" {
+		model = DefaultModel
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	dir := os.TempDir()
+	if d := filepath.Dir(path); d != "" {
+		dir = d
+	}
+	args := []string{"--print", "--model", model, "--allowedTools", "Read", "--add-dir", dir}
+	prompt := "Describe the image at: " + path + "\nRead it. Return 2-4 sentences covering: what's depicted, any visible text/captions verbatim, and the apparent purpose (receipt, screenshot, photo of a document, etc). No preamble."
+
+	cmd := exec.CommandContext(ctx, claudeBin, args...)
 	cmd.Stdin = strings.NewReader(prompt)
 	out, err := cmd.Output()
 	if err != nil {

@@ -618,6 +618,91 @@ func (m *Manager) SendMessage(phone string, text string, fromJID string) error {
 	return nil
 }
 
+// SendImage uploads imagePath as a photo to phone with optional caption.
+// fromJID picks the sending account; "" = first connected.
+//
+// Returns an error if no account is connected, the file is missing/unreadable,
+// the MIME type isn't a supported image, or the WhatsApp upload/send fails.
+func (m *Manager) SendImage(phone, imagePath, caption, fromJID string) error {
+	ac, client := m.getConnectedClient(fromJID)
+	if ac == nil {
+		return fmt.Errorf("no connected WhatsApp account")
+	}
+
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		return fmt.Errorf("read image: %w", err)
+	}
+
+	mime := mimeForExt(filepath.Ext(imagePath))
+	if mime == "" {
+		return fmt.Errorf("unsupported image extension %q (expected .jpg/.png/.webp)", filepath.Ext(imagePath))
+	}
+
+	targetJID, err := types.ParseJID(phone + "@s.whatsapp.net")
+	if err != nil {
+		return fmt.Errorf("invalid phone %q: %w", phone, err)
+	}
+
+	ctx := context.Background()
+	uploaded, err := client.Upload(ctx, data, whatsmeow.MediaImage)
+	if err != nil {
+		return fmt.Errorf("upload image: %w", err)
+	}
+
+	msg := &waE2E.Message{
+		ImageMessage: &waE2E.ImageMessage{
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mime),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))),
+			Caption:       proto.String(caption),
+		},
+	}
+
+	resp, err := client.SendMessage(ctx, targetJID, msg)
+	if err != nil {
+		return fmt.Errorf("send image: %w", err)
+	}
+
+	log.Printf("[whatsapp] %s: Sent image %s to %s (ID: %s)", ac.jid, filepath.Base(imagePath), phone, resp.ID)
+
+	outBody := caption
+	if outBody == "" {
+		outBody = "[image: " + filepath.Base(imagePath) + "]"
+	}
+	outMsg := Message{
+		ID:         resp.ID,
+		ChatJID:    targetJID.String(),
+		SenderJID:  client.Store.ID.String(),
+		Body:       outBody,
+		FromMe:     true,
+		Timestamp:  resp.Timestamp,
+		AccountJID: ac.jid,
+	}
+	ac.mu.Lock()
+	ac.messages = append(ac.messages, outMsg)
+	ac.mu.Unlock()
+	return nil
+}
+
+// mimeForExt maps an image file extension to a WhatsApp-supported MIME type.
+// Returns "" for unsupported extensions.
+func mimeForExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	}
+	return ""
+}
+
 // GetMessages returns messages across all accounts, optionally filtered.
 func (m *Manager) GetMessages(chatJID string, limit int) []Message {
 	m.mu.RLock()
