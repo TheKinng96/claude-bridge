@@ -358,12 +358,14 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 
 		parsed, perr := parseDispatch(raw)
 		if perr != nil {
-			// Tolerant fallback: surface raw text as the reply.
+			// Raw subprocess output (action JSON, chain transcripts, tool
+			// results) must NEVER reach the owner — surface a generic reply
+			// and keep the verbose text in the server log for triage.
+			log.Printf("[dispatch] parse error (%s/%s): %v — raw output (truncated): %s",
+				in.Channel, in.OwnerID, perr, truncate(raw, 500))
 			res.Action = ActionReply
-			res.UserReply = strings.TrimSpace(raw)
-			if res.UserReply == "" {
-				res.UserReply = "I'm not sure what to do with that."
-			}
+			res.UserReply = "Something went sideways on my end — give me one more try, or rephrase?"
+			res.Error = perr.Error()
 			break
 		}
 
@@ -427,8 +429,40 @@ func (d *Dispatcher) Run(ctx context.Context, in DispatchInput) DispatchResult {
 		log.Printf("[dispatch] trail (%s/%s): %s", in.Channel, in.OwnerID, strings.Join(trail, " → "))
 	}
 
+	res.UserReply = sanitizeReply(res.UserReply)
 	d.logAsync(ctx, in, res, time.Since(start), sess.ID)
 	return res
+}
+
+// sanitizeReply strips dispatcher internals that the LLM sometimes echoes back
+// into user_reply — raw action JSON, "Tool result:" / "You: {" chain markers,
+// and "[You ran action: …]" observation prefixes. These belong in the log,
+// not on the owner's screen.
+func sanitizeReply(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	cutMarkers := []string{
+		"\nTool result:",
+		"\nYou: {",
+		"\n[You ran action:",
+		"\n[Result]:",
+		"\n{\"action\":",
+		"\n\nOwner message:",
+	}
+	for _, m := range cutMarkers {
+		if i := strings.Index(s, m); i >= 0 {
+			s = s[:i]
+		}
+	}
+	// If the whole reply is just a JSON action blob (no human text), replace
+	// it with a generic recovery line so the owner doesn't see internals.
+	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, "{") && strings.HasSuffix(t, "}") {
+		return "Something went sideways on my end — give me one more try, or rephrase?"
+	}
+	return strings.TrimSpace(s)
 }
 
 // ownerProfileSystemPrompt returns dispatchSystemPrompt, optionally prefixed
