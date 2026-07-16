@@ -1,6 +1,7 @@
 # Productization Roadmap — Insurance-Agent Assistant
 
-**Date:** 2026-07-10
+**Date:** 2026-07-10 (revised 2026-07-16: P2/P3 reshaped around WhatsApp
+scheduling + dashboard-first senior-friendly UI; insurance schema deferred)
 **Status:** Approved (audit + roadmap); Phase 1 detailed design to follow
 **Supersedes:** positioning in README.md ("Claude Bridge" multi-connector framing)
 
@@ -18,6 +19,9 @@ insurance agent) into a sellable product for other insurance agents in SEA.
 | Client messaging | WhatsApp Business Cloud API (official). whatsmeow personal mode retained behind an "advanced / at your own risk" flag so the existing owner install keeps working. |
 | Pricing | One-time license key. (Consistent with local-first; full SaaS would have forced subscription.) |
 | Target market | Insurance agents, SEA, multilingual (EN / 中文 / Bahasa Melayu), WhatsApp-first. Non-technical users assumed. |
+| Product identity | WhatsApp scheduling + automation center. The owner's real usage pattern — manually spreading a few sends per day to avoid Meta spam detection — becomes the automated core feature. |
+| Primary surface | Dashboard-first: web app is the main workspace (compose, calendar, contacts); Telegram/WhatsApp chat is the remote control. UI designed for non-technical users in their 50s. |
+| Validation | Owner ("dad") is the pilot user throughout; new features land on his machine first and his needs feed the backlog. Insurance-domain features deferred until he asks. |
 
 ## 3. Audit summary (what blocks selling today)
 
@@ -85,23 +89,36 @@ during development but are not on the roadmap.
 - API error responses sanitized (no raw `err.Error()`).
 - Broadcast queue + daily-send-cap counter persisted (crash-safe limits).
 
-### Phase 2 — Insurance value
-- Policy data model: `policies` table (client_id, policy_no, insurer,
-  product type, premium, renewal_date, status) + CRUD dispatch actions +
-  dashboard page.
-- Persistent scheduler (SQLite-backed): renewal reminders, birthdays,
-  follow-ups → notifies owner, drafts client message for approval.
-- Structured policy extraction from uploaded documents (extends existing
-  classifier).
+### Phase 2 — Scheduling + automation engine (core product value)
+- Persistent scheduler (SQLite-backed, survives restart) with one queue
+  for all outgoing content: WhatsApp messages, broadcasts, Facebook posts.
+- Schedule types:
+  - One-off scheduled sends ("send to Alice tomorrow 9am", broadcast Friday).
+  - Recurring greetings: client birthdays (add DOB to `client_profiles`)
+    and SEA festival calendar (CNY, Hari Raya, Deepavali, Christmas).
+  - Follow-up sequences: "no reply in N days → nudge"; prospect drips.
+- Human-pace spreading (automates what the owner does by hand today):
+  daily send caps, quiet hours, randomized jitter, queue spread across the
+  day to avoid Meta spam detection. Extends existing broadcast pacing into
+  the core engine.
+- Approval-first: auto-drafted content lands in the existing
+  human-in-the-loop review queue unless the rule is explicitly auto-send.
+- New dispatch actions so chat can create/list/cancel schedules.
 
-### Phase 3 — Onboarding + UI + i18n
+### Phase 3 — Dashboard-first UI redesign + onboarding + i18n
+- Main workspace screens: **Today** (going out today + needs approval),
+  **Compose** (message → contacts/groups → channel WA/FB → send now or
+  schedule), **Calendar** (month view of scheduled content), **Contacts**,
+  **Settings**.
+- Facebook posting becomes a channel toggle inside the same Compose flow
+  (fixes current confusing separate surface).
+- Senior-friendly design language (users in their 50s): large type, high
+  contrast, one primary action per screen, generous tap targets, no jargon.
+- Single design system, single nav, single settings model.
 - First-run wizard: API key → Telegram bot (guided BotFather flow) →
   WhatsApp link → owner profile.
-- Unified design system: single nav, single settings model, consistent
-  pages.
 - i18n framework, EN / 中文 / Bahasa Melayu.
-- Rebrand: new product name, README/site rewrite as insurance-agent
-  assistant.
+- Rebrand: new product name, README/site rewrite.
 
 ### Phase 4 — WhatsApp Business Cloud API + relay
 - Hosted webhook relay; local app holds outbound connection.
@@ -115,22 +132,28 @@ during development but are not on the roadmap.
   release repo; auto-update from signed feed.
 - Opt-in error reporting; data backup/export.
 
-**Ordering logic:** Phase 1 unblocks everything; Phase 2 creates the
-sellable story; Phase 3 makes it sellable to strangers; Phase 4 makes the
-channel legal; Phase 5 lets it scale.
+**Ordering logic:** Phase 1 unblocks everything (scheduler needs the API
+client and persistence groundwork); Phase 2 creates the sellable story;
+Phase 3 makes it sellable to strangers; Phase 4 makes the channel legal;
+Phase 5 lets it scale.
 
-## 6. Out of scope (this roadmap)
+## 6. Deferred / out of scope (this roadmap)
 
+- **Insurance policy schema** (policies table, renewal tracking, structured
+  policy extraction) — deferred until pilot-user validation shows demand.
+  Renewal reminders can ride the Phase 2 scheduler later; the engine is
+  built generic for this reason. Tracked as a backlog issue.
 - Multi-tenancy / hosted SaaS.
-- Facebook/Instagram/LinkedIn/XHS connectors (existing FB code untouched).
+- New connectors: Instagram/LinkedIn/XHS (existing FB code stays).
 - Voice/video message intake.
-- Claims processing, quotes, needs-analysis tooling (candidate Phase 6+).
+- Claims processing, quotes, needs-analysis tooling.
 
 ## 7. Open questions (to resolve in phase designs)
 
 - Product name (Phase 3 rebrand).
-- Which insurers' document formats to support first for policy extraction
-  (Phase 2) — start with the ones in the owner's KB.
+- Festival calendar source + which festivals per market (Phase 2).
+- Follow-up sequences need reply detection — define "replied" for WhatsApp
+  chats reliably (Phase 2).
 - Relay hosting choice + cost model (Phase 4) — must stay cheap enough for
   one-time pricing.
 - Windows support timing (Phase 5).
