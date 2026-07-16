@@ -112,6 +112,12 @@ during development but are not on the roadmap.
   **Settings**.
 - Facebook posting becomes a channel toggle inside the same Compose flow
   (fixes current confusing separate surface).
+- Compose content sources: AI draft, saved templates, and a linked Google
+  Sheet — owner manually picks the latest image + message row (sheet linked
+  in Settings; shares the Google OAuth groundwork with crma-0c9 Drive sync).
+- Group management via a member-picker modal: tapping a group chip lists
+  all clients in it with large checkboxes; the same modal creates new
+  groups and drives "pick individually" in Compose.
 - Senior-friendly design language (users in their 50s): large type, high
   contrast, one primary action per screen, generous tap targets, no jargon.
 - Single design system, single nav, single settings model.
@@ -150,8 +156,10 @@ Phase 5 lets it scale.
 
 ## 7. Open questions (to resolve in phase designs)
 
-- Product name (Phase 3 rebrand).
+- Product name (Phase 3 rebrand; mockup uses working name "Hantar").
 - Festival calendar source + which festivals per market (Phase 2).
+- Google Sheet column convention for campaign content (image, message,
+  date added) — confirm with the sheet the owner actually uses (Phase 3).
 - Follow-up sequences need reply detection — define "replied" for WhatsApp
   chats reliably (Phase 2).
 - Relay hosting choice + cost model (Phase 4) — must stay cheap enough for
