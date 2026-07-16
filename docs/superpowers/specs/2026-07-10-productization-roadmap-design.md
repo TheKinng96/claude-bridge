@@ -126,10 +126,21 @@ during development but are not on the roadmap.
 - i18n framework, EN / 中文 / Bahasa Melayu.
 - Rebrand: new product name, README/site rewrite.
 
-### Phase 4 — WhatsApp Business Cloud API + relay
-- Hosted webhook relay; local app holds outbound connection.
-- Template messages and compliant broadcasts via Cloud API.
+### Phase 4 — Cloud relay: WhatsApp Business API + remote MCP
+- Hosted relay; local app holds outbound connection (no customer
+  port-forwarding).
+- WhatsApp Business Cloud API: webhook receipt via relay, template
+  messages, compliant broadcasts.
 - whatsmeow demoted to "personal mode (advanced)" flag.
+- **Remote MCP connector**: relay exposes the app's tools as a remote MCP
+  endpoint (streamable HTTP, OAuth 2.0 + PKCE — authless prohibited).
+  Owner adds it as a custom connector on claude.ai once; it then works in
+  Claude mobile (iOS/Android), web, desktop, and Cowork — phone chat
+  becomes the remote control, and the owner's existing Cowork desktop
+  workflow drives the same tools. Verified against Anthropic connector
+  docs 2026-07-16 (mobile support confirmed; relay must be public HTTPS;
+  Anthropic egress 160.79.104.0/21). Telegram becomes an optional legacy
+  channel rather than the primary remote interface.
 
 ### Phase 5 — Distribution + licensing
 - License server on the thin cloud; one-time keys; offline-tolerant
